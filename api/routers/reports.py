@@ -8,7 +8,7 @@ router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 @router.get("/summary", response_model=ReportSummary)
 async def get_summary(
-    period: str = Query("week", regex="^(day|week|month)$", description="Chu kỳ báo cáo (day, week, hoặc month)"),
+    period: str = Query("week", pattern="^(day|week|month)$", description="Chu kỳ báo cáo (day, week, hoặc month)"),
     db: aiosqlite.Connection = Depends(get_db)
 ):
     """
