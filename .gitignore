@@ -1,0 +1,10 @@
+venv/
+.env
+data/*.db
+data/*.session
+data/signal_history.txt
+data/*.csv
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
