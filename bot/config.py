@@ -9,6 +9,7 @@ class BotConfig(BaseSettings):
     telegram_bot_token: str
     owner_chat_id: int
     signal_group_id: str  # Có thể là chuỗi số -1001234 hoặc username nhóm @group_name
+    signal_group_backup_id: Optional[str] = None  # Nhóm/Kênh nhận tín hiệu phụ (Backup)
     
     # Telethon (Telegram User Client)
     telegram_api_id: int

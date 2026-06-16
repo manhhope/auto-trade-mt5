@@ -27,6 +27,12 @@ async def get_mapped_symbol(db: aiosqlite.Connection, symbol_alias: str) -> Opti
 
 async def create_trade(db: aiosqlite.Connection, req: TradeCreateRequest) -> Dict[str, Any]:
     """Tạo mới một trade ở trạng thái PENDING"""
+    # Resolve account_id
+    account_id = req.account_id
+    if not account_id:
+        from api.services.config_service import get_active_account_id
+        account_id = await get_active_account_id(db)
+
     # 1. Resolve symbol
     mt5_symbol = await get_mapped_symbol(db, req.symbol)
     if not mt5_symbol:
@@ -41,17 +47,47 @@ async def create_trade(db: aiosqlite.Connection, req: TradeCreateRequest) -> Dic
     if req.trade_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"] and req.price is None:
         raise ValueError("Lệnh chờ (limit/stop) yêu cầu phải có giá (price).")
         
+    # Auto-complete SL/TP/Price for Gold
+    stop_loss = req.stop_loss
+    take_profit = req.take_profit
+    price = req.price
+    
+    if mt5_symbol and ("XAU" in mt5_symbol.upper() or "GOLD" in mt5_symbol.upper()):
+        ref_price = 0.0
+        if req.price and req.price >= 1000:
+            ref_price = req.price
+        else:
+            async with db.execute("SELECT gold_price FROM account_info WHERE account_id = ?", (account_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    ref_price = row[0]
+                    
+        if ref_price > 0:
+            def expand_gold_val(val: Optional[float], ref: float) -> Optional[float]:
+                if val is None or val >= 1000 or val <= 0:
+                    return val
+                mod = 1000 if val >= 100 else 100
+                ref_base = ref - (ref % mod)
+                c1 = ref_base + val
+                c2 = ref_base - mod + val
+                c3 = ref_base + mod + val
+                return round(min([c1, c2, c3], key=lambda c: abs(c - ref)), 2)
+                
+            stop_loss = expand_gold_val(stop_loss, ref_price)
+            take_profit = expand_gold_val(take_profit, ref_price)
+            price = expand_gold_val(price, ref_price)
+
     # 4. Insert into DB
     cursor = await db.execute(
         """
         INSERT INTO trades (
-            uuid, signal_id, source, symbol, trade_type, lot_size, 
+            uuid, account_id, signal_id, source, symbol, trade_type, lot_size, 
             price, stop_loss, take_profit, status, close_requested, notified
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0, 0)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0, 0)
         """,
         (
-            req.uuid, req.signal_id, req.source.value, mt5_symbol, req.trade_type.value,
-            req.lot_size, req.price, req.stop_loss, req.take_profit
+            req.uuid, account_id, req.signal_id, req.source.value, mt5_symbol, req.trade_type.value,
+            req.lot_size, price, stop_loss, take_profit
         )
     )
     trade_id = cursor.lastrowid
@@ -67,12 +103,17 @@ async def get_trades(
     status: Optional[str] = None,
     close_requested: Optional[bool] = None,
     notified: Optional[bool] = None,
-    limit: int = 50
+    limit: int = 50,
+    account_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """Lấy danh sách trades theo các bộ lọc"""
     query = "SELECT * FROM trades WHERE 1=1"
     params = []
     
+    if account_id is not None:
+        query += " AND account_id = ?"
+        params.append(account_id)
+        
     if status is not None:
         query += " AND status = ?"
         params.append(status)

@@ -18,7 +18,7 @@ async def test_create_trade_success(client: AsyncClient):
     assert response.status_code == 201
     data = response.json()
     assert data["uuid"] == trade_uuid
-    assert data["symbol"] == "XAUUSD"
+    assert data["symbol"] == "XAUUSDm"
     assert data["status"] == "PENDING"
     assert data["close_requested"] is False
     assert data["notified"] is False
@@ -123,3 +123,43 @@ async def test_auth_failed_without_key(client: AsyncClient):
     response = await client.post("/api/trades", json=payload)
     assert response.status_code == 401
     assert "missing" in response.json()["detail"].lower()
+
+@pytest.mark.asyncio
+async def test_gold_price_expansion(client: AsyncClient):
+    # 1. Update gold price in account_info to 4332.12 to mock the environment
+    account_payload = {
+        "balance": 10000.0,
+        "equity": 10000.0,
+        "margin": 0.0,
+        "free_margin": 10000.0,
+        "profit": 0.0,
+        "server": "Demo",
+        "account_number": 12345,
+        "account_name": "Test Account",
+        "currency": "USD",
+        "leverage": 500,
+        "gold_price": 4332.12,
+        "gold_change_1h": 0.0,
+        "gold_change_4h": 0.0,
+        "gold_change_1d": 0.0
+    }
+    r_acc = await client.put("/api/account", json=account_payload)
+    assert r_acc.status_code == 200
+
+    # 2. Create a trade with 2-digit stop loss (e.g. 20.0)
+    trade_uuid = f"exp-uuid-{uuid.uuid4()}"
+    payload = {
+        "uuid": trade_uuid,
+        "symbol": "XAUUSD",
+        "trade_type": "BUY",
+        "lot_size": 0.03,
+        "stop_loss": 20.0, # should expand to 4320.00
+        "take_profit": 55.5, # should expand to 4355.50
+        "source": "MANUAL"
+    }
+    response = await client.post("/api/trades", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["stop_loss"] == 4320.00
+    assert data["take_profit"] == 4355.50
+

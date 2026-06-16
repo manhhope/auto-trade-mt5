@@ -22,6 +22,11 @@ async def execute_manual_trade(message: Message, trade_type: str):
         # 1. Parse tin nhắn lệnh
         parsed = parse_trade_command(message.text)
         symbol = parsed["symbol"]
+        price = parsed["price"]
+        
+        # Kiểm tra nếu lệnh chờ (limit/stop) thì bắt buộc phải có giá (price)
+        if trade_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"] and price is None:
+            raise ValueError("Lệnh chờ (limit/stop) yêu cầu phải cấu hình tham số price (VD: price=2320).")
         
         # 2. Xác định số lot (nếu không truyền -> lấy theo config hệ thống)
         lot_size = parsed["lot_size"]
@@ -41,7 +46,7 @@ async def execute_manual_trade(message: Message, trade_type: str):
             "symbol": symbol,
             "trade_type": trade_type,
             "lot_size": lot_size,
-            "price": parsed["price"],
+            "price": price,
             "stop_loss": parsed["stop_loss"],
             "take_profit": parsed["take_profit"],
             "source": "MANUAL"
@@ -55,7 +60,20 @@ async def execute_manual_trade(message: Message, trade_type: str):
         await message.reply(msg, parse_mode="Markdown")
         
     except ValueError as e:
-        await message.reply(f"❌ Lỗi cú pháp: {str(e)}\n\nVD: `/{trade_type.lower()} XAUUSD 0.01 sl=2340 tp=2370`", parse_mode="Markdown")
+        trade_type_to_cmd = {
+            "BUY": "buy",
+            "SELL": "sell",
+            "BUY_LIMIT": "buylimit",
+            "SELL_LIMIT": "selllimit",
+            "BUY_STOP": "buystop",
+            "SELL_STOP": "sellstop"
+        }
+        cmd_name = trade_type_to_cmd.get(trade_type, trade_type.lower().replace("_", ""))
+        if trade_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+            example = f"`/{cmd_name} XAUUSD 0.01 price=2320 sl=2310 tp=2350`"
+        else:
+            example = f"`/{cmd_name} XAUUSD 0.01 sl=2340 tp=2370`"
+        await message.reply(f"❌ Lỗi cú pháp: {str(e)}\n\nVD: {example}", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Gặp lỗi khi tạo lệnh: {str(e)}")
 

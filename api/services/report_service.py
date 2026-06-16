@@ -1,23 +1,20 @@
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import aiosqlite
+from api.services.config_service import get_active_account_id
 
 def get_date_range(period: str) -> tuple[datetime, datetime]:
     """Tính toán khoảng thời gian bắt đầu và kết thúc dựa trên period (day, week, month)"""
     now = datetime.utcnow()
-    # Mặc định kết thúc là thời điểm hiện tại
     date_to = now
     
     if period == "day":
         date_from = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
-        # Thứ Hai tuần này
         date_from = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "month":
-        # Ngày 1 của tháng này
         date_from = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     else:
-        # Mặc định là ngày hôm nay nếu sai period
         date_from = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
     return date_from, date_to
@@ -56,8 +53,11 @@ def calculate_streak(trades: List[Dict[str, Any]]) -> int:
             
     return streak
 
-async def get_summary_report(db: aiosqlite.Connection, period: str) -> Dict[str, Any]:
-    """Tính toán báo cáo tổng hợp cho chu kỳ chỉ định"""
+async def get_summary_report(db: aiosqlite.Connection, period: str, account_id: Optional[int] = None) -> Dict[str, Any]:
+    """Tính toán báo cáo tổng hợp cho chu kỳ chỉ định của tài khoản tương ứng"""
+    if account_id is None:
+        account_id = await get_active_account_id(db)
+
     date_from, date_to = get_date_range(period)
     date_from_str = date_from.isoformat()
     date_to_str = date_to.isoformat()
@@ -78,16 +78,16 @@ async def get_summary_report(db: aiosqlite.Connection, period: str) -> Dict[str,
                 NULLIF(ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)), 0),
             2) as profit_factor
         FROM trades
-        WHERE status = 'CLOSED'
+        WHERE account_id = ?
+          AND status = 'CLOSED'
           AND closed_at >= ?
           AND closed_at < ?;
     """
     
-    async with db.execute(summary_query, (date_from_str, date_to_str)) as cursor:
+    async with db.execute(summary_query, (account_id, date_from_str, date_to_str)) as cursor:
         row = await cursor.fetchone()
         summary = dict(row) if row else {}
         
-    # Chuẩn hóa các giá trị null/None từ SQL
     summary["total_trades"] = summary.get("total_trades") or 0
     summary["winning_trades"] = summary.get("winning_trades") or 0
     summary["losing_trades"] = summary.get("losing_trades") or 0
@@ -106,7 +106,8 @@ async def get_summary_report(db: aiosqlite.Connection, period: str) -> Dict[str,
             COUNT(CASE WHEN pnl > 0 THEN 1 END) as wins,
             COUNT(CASE WHEN pnl <= 0 THEN 1 END) as losses
         FROM trades
-        WHERE status = 'CLOSED'
+        WHERE account_id = ?
+          AND status = 'CLOSED'
           AND closed_at >= ?
           AND closed_at < ?
         GROUP BY DATE(closed_at)
@@ -115,7 +116,7 @@ async def get_summary_report(db: aiosqlite.Connection, period: str) -> Dict[str,
     
     daily_breakdown = []
     daily_pnls = []
-    async with db.execute(daily_query, (date_from_str, date_to_str)) as cursor:
+    async with db.execute(daily_query, (account_id, date_from_str, date_to_str)) as cursor:
         rows = await cursor.fetchall()
         for r in rows:
             daily_breakdown.append({
@@ -129,39 +130,73 @@ async def get_summary_report(db: aiosqlite.Connection, period: str) -> Dict[str,
     summary["daily_breakdown"] = daily_breakdown
     summary["max_drawdown"] = calculate_max_drawdown(daily_pnls)
     
-    # Query 3: Lấy các lệnh đã đóng để tính streak (sắp xếp giảm dần theo closed_at)
+    # Query 3: Lấy các lệnh đã đóng để tính streak và trả về chi tiết các lệnh (sắp xếp giảm dần theo closed_at)
     async with db.execute(
-        "SELECT pnl FROM trades WHERE status = 'CLOSED' AND closed_at >= ? AND closed_at < ? ORDER BY closed_at DESC",
-        (date_from_str, date_to_str)
+        """
+        SELECT ticket, symbol, trade_type, lot_size, open_price, close_price, pnl, close_reason, closed_at 
+        FROM trades 
+        WHERE account_id = ? AND status = 'CLOSED' AND closed_at >= ? AND closed_at < ? 
+        ORDER BY closed_at DESC
+        """,
+        (account_id, date_from_str, date_to_str)
     ) as cursor:
         rows = await cursor.fetchall()
-        trades_list = [dict(r) for r in rows]
+        trades_list = []
+        for r in rows:
+            closed_at_dt = None
+            if r["closed_at"]:
+                try:
+                    ts_str = r["closed_at"].replace("Z", "").replace(" ", "T")
+                    if "." in ts_str:
+                        closed_at_dt = datetime.strptime(ts_str.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+                    else:
+                        closed_at_dt = datetime.fromisoformat(ts_str)
+                except Exception:
+                    pass
+
+            trades_list.append({
+                "ticket": r["ticket"],
+                "symbol": r["symbol"],
+                "trade_type": r["trade_type"],
+                "lot_size": r["lot_size"],
+                "open_price": r["open_price"],
+                "close_price": r["close_price"],
+                "pnl": r["pnl"],
+                "close_reason": r["close_reason"],
+                "closed_at": closed_at_dt
+            })
+            
         summary["current_streak"] = calculate_streak(trades_list)
+        summary["trades"] = trades_list
         
     summary["period"] = period
     summary["date_from"] = date_from_str
     summary["date_to"] = date_to_str
+    summary["account_id"] = account_id
     
     return summary
 
-async def get_report_trend(db: aiosqlite.Connection, weeks: int = 4) -> Dict[str, Any]:
-    """So sánh kết quả giao dịch giữa kỳ hiện tại (X tuần gần nhất) và kỳ trước đó"""
+async def get_report_trend(db: aiosqlite.Connection, weeks: int = 4, account_id: Optional[int] = None) -> Dict[str, Any]:
+    """So sánh kết quả giao dịch giữa kỳ hiện tại (X tuần gần nhất) và kỳ trước đó của tài khoản tương ứng"""
+    if account_id is None:
+        account_id = await get_active_account_id(db)
+
     now = datetime.utcnow()
     current_from = now - timedelta(weeks=weeks)
     previous_from = now - timedelta(weeks=weeks * 2)
     
     # Tính P/L kỳ này
     async with db.execute(
-        "SELECT SUM(pnl) FROM trades WHERE status = 'CLOSED' AND closed_at >= ? AND closed_at < ?",
-        (current_from.isoformat(), now.isoformat())
+        "SELECT SUM(pnl) FROM trades WHERE account_id = ? AND status = 'CLOSED' AND closed_at >= ? AND closed_at < ?",
+        (account_id, current_from.isoformat(), now.isoformat())
     ) as cursor:
         row = await cursor.fetchone()
         current_pnl = row[0] if row and row[0] is not None else 0.0
         
     # Tính P/L kỳ trước
     async with db.execute(
-        "SELECT SUM(pnl) FROM trades WHERE status = 'CLOSED' AND closed_at >= ? AND closed_at < ?",
-        (previous_from.isoformat(), current_from.isoformat())
+        "SELECT SUM(pnl) FROM trades WHERE account_id = ? AND status = 'CLOSED' AND closed_at >= ? AND closed_at < ?",
+        (account_id, previous_from.isoformat(), current_from.isoformat())
     ) as cursor:
         row = await cursor.fetchone()
         previous_pnl = row[0] if row and row[0] is not None else 0.0

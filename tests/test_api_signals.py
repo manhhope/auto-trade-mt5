@@ -49,7 +49,7 @@ async def test_confirm_queued_signal(client: AsyncClient):
     
     # Lệnh sinh ra từ signal phải ở trạng thái PENDING trên MT5
     assert trade["source"] == "SIGNAL"
-    assert trade["symbol"] == "XAUUSD" # Đã được map từ GOLD -> XAUUSD trong DB
+    assert trade["symbol"] == "XAUUSDm" # Đã được map từ GOLD -> XAUUSDm trong DB
     assert trade["trade_type"] == "BUY"
     assert trade["lot_size"] == 0.05
     assert trade["stop_loss"] == 2340.0

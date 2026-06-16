@@ -2,6 +2,21 @@ import os
 import pytest
 import aiosqlite
 import pytest_asyncio
+
+# Load .env file manually to read TELEGRAM_BOT_TEST_TOKEN
+if os.path.exists(".env"):
+    with open(".env", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                os.environ[key.strip()] = val.strip()
+
+# Nếu có cấu hình test token, sử dụng làm bot token chính khi chạy test
+test_token = os.environ.get("TELEGRAM_BOT_TEST_TOKEN")
+if test_token:
+    os.environ["TELEGRAM_BOT_TOKEN"] = test_token
+
 from httpx import AsyncClient
 from typing import AsyncGenerator
 

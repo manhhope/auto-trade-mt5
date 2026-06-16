@@ -49,7 +49,7 @@ async def cmd_close(message: Message):
         await message.reply("❌ Vui lòng nhập số Ticket. VD: `/close 12345`", parse_mode="Markdown")
         return
         
-    ticket_str = parts[1]
+    ticket_str = parts[1].lstrip("#")
     if not ticket_str.isdigit():
         await message.reply("❌ Ticket phải là số nguyên.")
         return
@@ -69,9 +69,10 @@ async def cmd_close(message: Message):
             await message.reply(f"❌ Không tìm thấy vị thế đang mở nào có ticket #{ticket}.")
             return
             
-        # 2. Gửi yêu cầu đóng lệnh lên API
-        await api_client.request_close_trade(target_pos["id"])
-        await message.reply(f"⏳ Đã gửi yêu cầu đóng lệnh **{target_pos['trade_type']} {target_pos['symbol']} {target_pos['lot_size']:.2f}** (Ticket: `#{ticket}`). EA đang thực thi...", parse_mode="Markdown")
+        # 2. Gửi yêu cầu đóng lệnh lên API theo ticket
+        await api_client.request_close_position_by_ticket(ticket)
+        type_str = f" [Thủ công]" if target_pos.get("is_manual") else ""
+        await message.reply(f"⏳ Đã gửi yêu cầu đóng lệnh{type_str} **{target_pos['trade_type']} {target_pos['symbol']} {target_pos['lot_size']:.2f}** (Ticket: `#{ticket}`). EA đang thực thi...", parse_mode="Markdown")
         
     except Exception as e:
         await message.reply(f"❌ Yêu cầu đóng lệnh thất bại: {str(e)}")
@@ -90,9 +91,26 @@ async def cmd_closeall(message: Message):
             
         closed_count = 0
         for pos in positions:
-            await api_client.request_close_trade(pos["id"])
+            await api_client.request_close_position_by_ticket(pos["ticket"])
             closed_count += 1
             
         await message.reply(f"⏳ Đã gửi yêu cầu đóng **{closed_count}** vị thế đang chạy. Vui lòng chờ EA thực thi...")
     except Exception as e:
         await message.reply(f"❌ Lỗi khi gửi yêu cầu đóng toàn bộ lệnh: {str(e)}")
+
+@router.message(Command("gold"))
+@router.message(Command("price"))
+@router.message(Command("xauusd"))
+async def cmd_gold_price(message: Message):
+    """Xem giá vàng hiện tại và biến động"""
+    if not is_owner(message):
+        return
+        
+    try:
+        from bot.utils.formatter import format_gold_price
+        account = await api_client.get_account()
+        health = await api_client.get_health()
+        msg = format_gold_price(account, health)
+        await message.reply(msg)
+    except Exception as e:
+        await message.reply(f"❌ Không thể lấy giá vàng: {str(e)}")

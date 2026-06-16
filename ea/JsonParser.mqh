@@ -18,7 +18,7 @@ struct TradeData
    double   price;
    double   stop_loss;
    double   take_profit;
-   int      ticket;
+   ulong    ticket;
    bool     close_requested;
 };
 
@@ -29,7 +29,7 @@ class JsonParser
 {
 private:
    // Trích xuất giá trị thô theo key (không bao gồm dấu ngoặc kép)
-   static string ExtractValue(const string json, const string key)
+   string ExtractValue(const string json, const string key)
    {
       string search_key = "\"" + key + "\"";
       int start_pos = StringFind(json, search_key);
@@ -84,13 +84,13 @@ public:
    ~JsonParser() {}
 
    // Lấy chuỗi
-   static string GetString(const string json, const string key)
+   string GetString(const string json, const string key)
    {
       return ExtractValue(json, key);
    }
 
    // Lấy số thực
-   static double GetDouble(const string json, const string key)
+   double GetDouble(const string json, const string key)
    {
       string val = ExtractValue(json, key);
       if(val == "") return 0.0;
@@ -98,22 +98,30 @@ public:
    }
 
    // Lấy số nguyên
-   static int GetInteger(const string json, const string key)
+   int GetInteger(const string json, const string key)
    {
       string val = ExtractValue(json, key);
       if(val == "") return 0;
       return (int)StringToInteger(val);
    }
    
+   // Lấy số ulong
+   ulong GetUlong(const string json, const string key)
+   {
+      string val = ExtractValue(json, key);
+      if(val == "") return 0;
+      return (ulong)StringToInteger(val);
+   }
+   
    // Lấy boolean
-   static bool GetBool(const string json, const string key)
+   bool GetBool(const string json, const string key)
    {
       string val = ExtractValue(json, key);
       return (val == "true" || val == "1");
    }
 
    // Parse một mảng JSON các object trade: [ {...}, {...} ]
-   static int ParseTradeArray(const string json_array, TradeData &out_trades[])
+   int ParseTradeArray(const string json_array, TradeData &out_trades[])
    {
       ArrayFree(out_trades);
       
@@ -147,7 +155,7 @@ public:
          out_trades[count].price = GetDouble(obj_str, "price");
          out_trades[count].stop_loss = GetDouble(obj_str, "stop_loss");
          out_trades[count].take_profit = GetDouble(obj_str, "take_profit");
-         out_trades[count].ticket = GetInteger(obj_str, "ticket");
+         out_trades[count].ticket = GetUlong(obj_str, "ticket");
          out_trades[count].close_requested = GetBool(obj_str, "close_requested");
          
          count++;
@@ -155,5 +163,79 @@ public:
       }
       
       return count;
+   }
+
+   // Parse một mảng số nguyên đơn giản từ JSON: "key":[1,2,3]
+   int ParseIntArray(const string json, const string key, int &out_array[])
+   {
+      ArrayFree(out_array);
+      string search_key = "\"" + key + "\"";
+      int key_pos = StringFind(json, search_key);
+      if(key_pos == -1) return 0;
+      
+      int start_bracket = StringFind(json, "[", key_pos);
+      int end_bracket = StringFind(json, "]", start_bracket);
+      if(start_bracket == -1 || end_bracket == -1) return 0;
+      
+      string array_str = StringSubstr(json, start_bracket + 1, end_bracket - start_bracket - 1);
+      if(array_str == "") return 0;
+      
+      string parts[];
+      int count = StringSplit(array_str, ',', parts);
+      
+      int added = 0;
+      for(int i = 0; i < count; i++)
+      {
+         string clean_part = parts[i];
+         StringTrimLeft(clean_part);
+         StringTrimRight(clean_part);
+         if(clean_part == "") continue;
+         
+         long val = StringToInteger(clean_part);
+         if(val > 0)
+         {
+            added++;
+            ArrayResize(out_array, added);
+            out_array[added - 1] = (int)val;
+         }
+      }
+      return added;
+   }
+
+   // Parse một mảng số ulong đơn giản từ JSON: "key":[1,2,3]
+   int ParseUlongArray(const string json, const string key, ulong &out_array[])
+   {
+      ArrayFree(out_array);
+      string search_key = "\"" + key + "\"";
+      int key_pos = StringFind(json, search_key);
+      if(key_pos == -1) return 0;
+      
+      int start_bracket = StringFind(json, "[", key_pos);
+      int end_bracket = StringFind(json, "]", start_bracket);
+      if(start_bracket == -1 || end_bracket == -1) return 0;
+      
+      string array_str = StringSubstr(json, start_bracket + 1, end_bracket - start_bracket - 1);
+      if(array_str == "") return 0;
+      
+      string parts[];
+      int count = StringSplit(array_str, ',', parts);
+      
+      int added = 0;
+      for(int i = 0; i < count; i++)
+      {
+         string clean_part = parts[i];
+         StringTrimLeft(clean_part);
+         StringTrimRight(clean_part);
+         if(clean_part == "") continue;
+         
+         long val = StringToInteger(clean_part);
+         if(val > 0)
+         {
+            added++;
+            ArrayResize(out_array, added);
+            out_array[added - 1] = (ulong)val;
+         }
+      }
+      return added;
    }
 };

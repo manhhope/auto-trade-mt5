@@ -48,10 +48,13 @@ def format_auto_trade(trade: Dict[str, Any]) -> str:
     tp_val = f"{trade.get('take_profit'):.2f}" if trade.get('take_profit') else "Không có"
     entry_val = f"{entry:.2f}" if entry else "Giá Thị Trường"
 
+    trade_type = trade.get("trade_type", "BUY")
+    icon = "🟢" if "BUY" in trade_type else "🔴"
+
     return (
         f"🤖 **AUTO — LỆNH MỚI TỪ SIGNAL**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 **{trade['trade_type']} {trade['symbol']}**\n"
+        f"📊 {icon} **{trade_type} {trade['symbol']}**\n"
         f"💰 Lot: {trade['lot_size']:.2f}\n"
         f"💵 Entry: {entry_val}\n"
         f"🛑 SL: {sl_val}{pips_sl}\n"
@@ -69,10 +72,13 @@ def format_queue_signal(signal: Dict[str, Any], expire_minutes: int = 15) -> str
     tp_val = f"{signal.get('parsed_tp'):.2f}" if signal.get('parsed_tp') else "Không có"
     entry_val = f"{signal.get('parsed_price'):.2f}" if signal.get('parsed_price') else "Giá Thị Trường"
 
+    parsed_type = signal.get("parsed_type", "BUY")
+    icon = "🟢" if "BUY" in parsed_type else "🔴"
+
     return (
         f"📋 **TÍN HIỆU MỚI — {signal['queue_id']}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 **{signal['parsed_type']} {signal['parsed_symbol']}**\n"
+        f"📊 {icon} **{parsed_type} {signal['parsed_symbol']}**\n"
         f"💰 Lot: (Theo cấu hình hệ thống)\n"
         f"💵 Entry: {entry_val}\n"
         f"🛑 SL: {sl_val}\n"
@@ -91,10 +97,13 @@ def format_trade_filled(trade: Dict[str, Any]) -> str:
     sl_val = f"{trade.get('stop_loss'):.2f}" if trade.get('stop_loss') else "Không có"
     tp_val = f"{trade.get('take_profit'):.2f}" if trade.get('take_profit') else "Không có"
     
+    trade_type = trade.get("trade_type", "BUY")
+    icon = "🟢" if "BUY" in trade_type else "🔴"
+    
     return (
         f"✅ **LỆNH ĐÃ KHỚP**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 **{trade['trade_type']} {trade['symbol']} {trade['lot_size']:.2f}**\n"
+        f"📊 {icon} **{trade_type} {trade['symbol']} {trade['lot_size']:.2f}**\n"
         f"💵 Giá vào: {trade['open_price']:.2f}\n"
         f"🛑 SL: {sl_val}\n"
         f"🎯 TP: {tp_val}\n"
@@ -106,8 +115,11 @@ def format_trade_filled(trade: Dict[str, Any]) -> str:
 def format_trade_closed(trade: Dict[str, Any], today_summary: str = "") -> str:
     """Thông báo lệnh đã đóng kèm P/L"""
     pnl = trade.get("pnl") or 0.0
-    indicator = "✅" if pnl > 0 else "❌"
+    indicator = "❇️" if pnl >= 0 else "❌"
     pnl_sign = "+" if pnl > 0 else ""
+    
+    trade_type = trade.get("trade_type", "BUY")
+    type_icon = "🟢" if "BUY" in trade_type else "🔴"
     
     # Tính thời gian giữ lệnh
     duration_str = "N/A"
@@ -123,9 +135,9 @@ def format_trade_closed(trade: Dict[str, Any], today_summary: str = "") -> str:
             pass
 
     return (
-        f"🔔 **LỆNH ĐÃ ĐÓNG**\n"
+        f"❎ **LỆNH ĐÃ ĐÓNG**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 **{trade['trade_type']} {trade['symbol']} {trade['lot_size']:.2f}**\n"
+        f"📊 {type_icon} **{trade_type} {trade['symbol']} {trade['lot_size']:.2f}**\n"
         f"💵 Vào: {trade['open_price']:.2f} → Ra: {trade['close_price']:.2f}\n"
         f"💰 P/L: **{pnl_sign}${pnl:.2f}** {indicator}\n"
         f"📢 Lý do: {trade.get('close_reason') or 'MANUAL'}\n"
@@ -149,14 +161,18 @@ def format_positions_list(positions: List[Dict[str, Any]]) -> str:
         pnl = pos.get("pnl") or 0.0
         total_pnl += pnl
         pnl_sign = "+" if pnl > 0 else ""
-        icon = "🟢" if pnl >= 0 else "🔴"
         
-        sl_str = f"{pos['stop_loss']:.2f}" if pos.get("stop_loss") else "Không có"
-        tp_str = f"{pos['take_profit']:.2f}" if pos.get("take_profit") else "Không có"
+        trade_type = pos.get("trade_type", "BUY")
+        icon = "🟢" if "BUY" in trade_type else "🔴"
+        
+        sl_str = f"{pos['stop_loss']:.2f}" if pos.get("stop_loss") else "-"
+        tp_str = f"{pos['take_profit']:.2f}" if pos.get("take_profit") else "-"
+        
+        is_manual = pos.get("is_manual", False)
+        type_tag = " ✍️" if is_manual else ""
         
         lines.append(
-            f"{idx}. {icon} `#{pos['ticket']}` **{pos['trade_type']} {pos['symbol']} {pos['lot_size']:.2f}** @ {pos['open_price']:.2f}\n"
-            f"   P/L: **{pnl_sign}${pnl:.2f}** | SL: {sl_str} | TP: {tp_str}"
+            f"{idx}. {icon} `#{pos['ticket']}` **{pos['symbol']} {pos['lot_size']:.2f}** @ {pos['open_price']:.2f}{type_tag} | **{pnl_sign}${pnl:.2f}** | SL: {sl_str} | TP: {tp_str}"
         )
         
     lines.append("━━━━━━━━━━━━━━━━━━━━")
@@ -200,15 +216,20 @@ def format_report(summary: Dict[str, Any], trend: Dict[str, Any]) -> str:
     streak_txt = f"{abs(streak)} thắng liên tiếp" if streak > 0 else (f"{abs(streak)} thua liên tiếp" if streak < 0 else "Không có")
     streak_emoji = "🔥" if streak > 0 else ("❄️" if streak < 0 else "")
     
+    # Calculate win_sum and loss_sum from trades list
+    trades = summary.get("trades") or []
+    win_sum = sum(t.get("pnl") or 0.0 for t in trades if (t.get("pnl") or 0.0) > 0)
+    loss_sum = sum(t.get("pnl") or 0.0 for t in trades if (t.get("pnl") or 0.0) < 0)
+    
     # Header báo cáo
     lines = [
         f"📊 **BÁO CÁO {period_title}**",
         f"({format_datetime(summary['date_from'])} — {format_datetime(summary['date_to'])})",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
-        f"💰 Tổng P/L:      **{'+' if summary['total_pnl'] > 0 else ''}${summary['total_pnl']:.2f}**",
-        f"📈 Lệnh thắng:    {summary['winning_trades']} ({summary['win_rate']}%)",
-        f"📉 Lệnh thua:     {summary['losing_trades']} ({round(100 - summary['win_rate'], 1) if summary['total_trades'] > 0 else 0.0}%)",
         f"📋 Tổng lệnh:     {summary['total_trades']}",
+        f"❇️ THẮNG:         {summary['winning_trades']} ({summary['win_rate']}%) | +${win_sum:,.2f}",
+        f"❌ THUA:          {summary['losing_trades']} ({round(100 - summary['win_rate'], 1) if summary['total_trades'] > 0 else 0.0}%) | -${abs(loss_sum):,.2f}",
+        f"🚀 LỢI NHUẬN:     **{'+' if summary['total_pnl'] > 0 else ''}${summary['total_pnl']:,.2f}**\n",
         f"💵 Trung bình:    {'+' if summary['avg_pnl'] > 0 else ''}${summary['avg_pnl']:.2f}/lệnh",
         f"⚖️ Profit Factor: {summary['profit_factor'] if summary['profit_factor'] is not None else 'N/A'}",
         f"📉 Max Drawdown:  ${summary['max_drawdown']:.2f}",
@@ -249,6 +270,22 @@ def format_report(summary: Dict[str, Any], trend: Dict[str, Any]) -> str:
     lines.append(f"  {period_label}:  ${trend['previous_period_pnl']:.2f}")
     lines.append(f"  Kỳ này:      ${trend['current_period_pnl']:.2f} ({trend_sign}{trend_pct}%) {trend_arrow}")
     
+    if summary.get("period") == "day":
+        if trades:
+            lines.append("\n📜 **CHI TIẾT CÁC LỆNH ĐÃ ĐÓNG**")
+            lines.append("━━━━━━━━━━━━━━━━━━━━")
+            for t in trades:
+                pnl = t.get("pnl") or 0.0
+                icon = "❇️" if pnl >= 0 else "❌"
+                pnl_sign = "+" if pnl > 0 else ""
+                ticket_str = f" `#{t['ticket']}`" if t.get("ticket") else ""
+                t_type = t.get("trade_type", "BUY")
+                type_icon = "🟢" if "BUY" in t_type else "🔴"
+                
+                lines.append(
+                    f"{icon} {type_icon}{ticket_str} **{t['symbol']} {t['lot_size']:.2f}** @ {t['open_price']:.2f} → {t['close_price']:.2f} | **{pnl_sign}${pnl:.2f}**"
+                )
+    
     return "\n".join(lines)
 
 def format_config(configs: Dict[str, Any]) -> str:
@@ -256,20 +293,71 @@ def format_config(configs: Dict[str, Any]) -> str:
     mode_str = "📋 Queue (Chờ xác nhận)" if configs.get("mode") == "queue" else "🤖 Auto (Tự động đặt lệnh)"
     
     lines = [
-        f"⚙️ **CẤU HÌNH HIỆN TẠI**\n"
+        f"⚙️ <b>CẤU HÌNH HIỆN TẠI</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔀 Chế độ Mode:  **{mode_str}**\n"
-        f"💰 Lot mặc định: `{configs.get('default_lot', '0.01')}`\n"
-        f"⏱️ Queue expire: `{configs.get('queue_expire_minutes', '15')} phút`\n"
-        f"🛡️ SL buffer:    `{configs.get('sl_buffer_pips', '0')} pips`\n"
-        f"📢 Listen Group: `{configs.get('signal_group_id', 'Chưa cấu hình')}`"
+        f"🔀 Chế độ Mode:  <b>{mode_str}</b>\n"
+        f"💰 Lot mặc định: <code>{configs.get('default_lot', '0.01')}</code>\n"
+        f"⏱️ Queue expire: <code>{configs.get('queue_expire_minutes', '15')} phút</code>\n"
+        f"🛡️ SL buffer:    <code>{configs.get('sl_buffer_pips', '0')} pips</code>\n"
+        f"📢 Listen Group: <code>{configs.get('signal_group_id', 'Chưa cấu hình')}</code>\n"
     ]
     
     overrides = configs.get("lot_overrides", {})
     if overrides:
-        lines.append("   **Ghi đè lot size cho symbol:**")
+        lines.append("   <b>Ghi đè lot size cho symbol:</b>")
         for sym, lot in overrides.items():
-            lines.append(f"    └─ {sym}: `{lot:.2f}`")
+            lines.append(f"    └─ {sym}: <code>{lot:.2f}</code>")
+        lines.append("")
             
+    lines.append("💡 <b>Hướng dẫn thay đổi cấu hình:</b>")
+    lines.append("• Lot mặc định: <code>/config default_lot=0.03</code>")
+    lines.append("• Hạn hàng đợi: <code>/config queue_expire_minutes=15</code>")
+    lines.append("• Ghi đè lot: <code>/config [CẶP]=[LOT]</code> (VD: <code>/config XAUUSD=0.02</code>)")
+    lines.append("• Xoá ghi đè: <code>/config remove [CẶP]</code>")
+    lines.append("• Đổi chế độ: <code>/mode auto</code> hoặc <code>/mode queue</code>")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lines)
+
+def format_gold_price(account: Dict[str, Any], health: Dict[str, Any]) -> str:
+    """Định dạng thông tin giá vàng và biến động (HTML)"""
+    price = account.get("gold_price") or 0.0
+    if price == 0.0:
+        return "⚠️ <b>Không có dữ liệu giá vàng.</b> Vui lòng đảm bảo EA đang chạy trên MT5."
+        
+    change_1h = account.get("gold_change_1h") or 0.0
+    change_4h = account.get("gold_change_4h") or 0.0
+    change_1d = account.get("gold_change_1d") or 0.0
+    
+    # Tính toán icon tăng giảm
+    def get_trend_details(val: float) -> str:
+        if val > 0:
+            return f"🟢 +{val:.2f} $"
+        elif val < 0:
+            return f"🔴 -{abs(val):.2f} $"
+        else:
+            return f"⚪ 0.00 $"
+            
+    # Check if EA is online
+    ea_status = "Online ✅" if health["ea_online"] else "Offline 🔴 (Giá có thể bị trễ)"
+    
+    # Tính thời gian cập nhật
+    updated_at = account.get("updated_at")
+    time_str = "N/A"
+    if updated_at:
+        try:
+            time_str = format_datetime(updated_at)
+        except Exception:
+            time_str = str(updated_at)
+            
+    return (
+        f"📊 <b>GIÁ VÀNG XAUUSDm</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 Giá hiện tại: <b>{price:.2f} $</b>\n"
+        f"⏱️ Biến động:\n"
+        f"   └─ 1 giờ (H1):  {get_trend_details(change_1h)}\n"
+        f"   └─ 4 giờ (H4):  {get_trend_details(change_4h)}\n"
+        f"   └─ Trong ngày:  {get_trend_details(change_1d)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🤖 Trạng thái EA: <b>{ea_status}</b>\n"
+        f"⏰ Cập nhật lúc: <code>{time_str}</code>"
+    )

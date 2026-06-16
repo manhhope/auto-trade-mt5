@@ -26,6 +26,24 @@ class ApiClient:
             response.raise_for_status()
             return response.json()
 
+    # ── Accounts Management ──
+    async def get_accounts(self) -> List[Dict[str, Any]]:
+        return await self._request("GET", "/api/accounts")
+
+    async def create_account(self, name: str, platform: str, account_number: Optional[str] = None) -> Dict[str, Any]:
+        body = {
+            "name": name,
+            "platform": platform,
+            "account_number": account_number
+        }
+        return await self._request("POST", "/api/accounts", json_body=body)
+
+    async def activate_account(self, account_id: int) -> Dict[str, Any]:
+        return await self._request("PUT", f"/api/accounts/{account_id}/active")
+
+    async def delete_account(self, account_id: int) -> Dict[str, Any]:
+        return await self._request("DELETE", f"/api/accounts/{account_id}")
+
     # ── Trades ──
     async def create_trade(self, trade_req: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/api/trades", json_body=trade_req)
@@ -35,7 +53,8 @@ class ApiClient:
         status: Optional[str] = None, 
         close_requested: Optional[bool] = None, 
         notified: Optional[bool] = None,
-        limit: int = 50
+        limit: int = 50,
+        account_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         params = {"limit": limit}
         if status is not None:
@@ -44,10 +63,16 @@ class ApiClient:
             params["close_requested"] = "true" if close_requested else "false"
         if notified is not None:
             params["notified"] = "true" if notified else "false"
+        if account_id is not None:
+            params["account_id"] = account_id
         return await self._request("GET", "/api/trades", params=params)
 
     async def request_close_trade(self, trade_id: int) -> Dict[str, Any]:
         return await self._request("PUT", f"/api/trades/{trade_id}/close-request")
+
+    async def request_close_position_by_ticket(self, ticket: int, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("PUT", f"/api/positions/{ticket}/close", params=params)
 
     async def mark_notified(self, trade_id: int) -> Dict[str, Any]:
         return await self._request("PUT", f"/api/trades/{trade_id}/notify")
@@ -56,10 +81,12 @@ class ApiClient:
     async def create_signal(self, signal_req: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("POST", "/api/signals", json_body=signal_req)
 
-    async def get_signals(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_signals(self, status: Optional[str] = None, account_id: Optional[int] = None) -> List[Dict[str, Any]]:
         params = {}
         if status is not None:
             params["status"] = status
+        if account_id is not None:
+            params["account_id"] = account_id
         return await self._request("GET", "/api/signals", params=params)
 
     async def confirm_signal(self, signal_id_or_queue: str, lot_override: Optional[float] = None) -> Dict[str, Any]:
@@ -76,35 +103,57 @@ class ApiClient:
         return await self._request("POST", "/api/signals/reject-all")
 
     # ── Config ──
-    async def get_config(self) -> Dict[str, Any]:
-        return await self._request("GET", "/api/config")
+    async def get_config(self, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("GET", "/api/config", params=params)
 
-    async def update_config(self, key: str, value: str) -> Dict[str, Any]:
-        return await self._request("PUT", f"/api/config/{key}", json_body={"value": value})
+    async def get_trailing_config(self, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("GET", "/api/config/trailing", params=params)
 
-    async def set_lot_override(self, symbol: str, lot_size: float) -> Dict[str, Any]:
-        return await self._request("PUT", f"/api/config/lot-overrides/{symbol}", json_body={"lot_size": lot_size})
+    async def update_config(self, key: str, value: str, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("PUT", f"/api/config/{key}", json_body={"value": value}, params=params)
 
-    async def delete_lot_override(self, symbol: str) -> Dict[str, Any]:
-        return await self._request("DELETE", f"/api/config/lot-overrides/{symbol}")
+    async def set_lot_override(self, symbol: str, lot_size: float, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("PUT", f"/api/config/lot-overrides/{symbol}", json_body={"lot_size": lot_size}, params=params)
+
+    async def delete_lot_override(self, symbol: str, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("DELETE", f"/api/config/lot-overrides/{symbol}", params=params)
 
     # ── Account & Positions ──
-    async def get_account(self) -> Dict[str, Any]:
-        return await self._request("GET", "/api/account")
+    async def get_account(self, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("GET", "/api/account", params=params)
 
-    async def get_positions(self) -> List[Dict[str, Any]]:
-        return await self._request("GET", "/api/positions")
+    async def get_positions(self, account_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("GET", "/api/positions", params=params)
 
     # ── Health ──
-    async def get_health(self) -> Dict[str, Any]:
-        return await self._request("GET", "/api/health")
+    async def get_health(self, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("GET", "/api/health", params=params)
 
     # ── Reports ──
-    async def get_report_summary(self, period: str) -> Dict[str, Any]:
-        return await self._request("GET", "/api/reports/summary", params={"period": period})
+    async def get_report_summary(self, period: str, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"period": period}
+        if account_id is not None:
+            params["account_id"] = account_id
+        return await self._request("GET", "/api/reports/summary", params=params)
 
-    async def get_report_trend(self, weeks: int = 4) -> Dict[str, Any]:
-        return await self._request("GET", "/api/reports/trend", params={"weeks": weeks})
+    async def get_report_trend(self, weeks: int = 4, account_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {"weeks": weeks}
+        if account_id is not None:
+            params["account_id"] = account_id
+        return await self._request("GET", "/api/reports/trend", params=params)
+
+    # ── Action Logs ──
+    async def get_action_logs(self, account_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        params = {"account_id": account_id} if account_id is not None else None
+        return await self._request("GET", "/api/action-logs", params=params)
 
 # Khởi tạo instance API client dùng chung
 api_client = ApiClient()

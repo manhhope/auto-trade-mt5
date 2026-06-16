@@ -55,6 +55,7 @@ class TradeCreateRequest(BaseModel):
     take_profit: Optional[float] = None
     signal_id: Optional[int] = None
     source: TradeSource = TradeSource.MANUAL
+    account_id: Optional[int] = None
 
 class TradeUpdateRequest(BaseModel):
     status: TradeStatus
@@ -72,6 +73,7 @@ class TradeUpdateRequest(BaseModel):
 class TradeResponse(BaseModel):
     id: int
     uuid: str
+    account_id: Optional[int]
     signal_id: Optional[int]
     source: str
     symbol: str
@@ -111,6 +113,7 @@ class SignalCreateRequest(BaseModel):
     parsed_sl: Optional[float] = None
     parsed_tp: Optional[float] = None
     parse_success: bool = False
+    account_id: Optional[int] = None
 
 class SignalConfirmRequest(BaseModel):
     lot_override: Optional[float] = Field(None, gt=0, le=100)
@@ -118,6 +121,7 @@ class SignalConfirmRequest(BaseModel):
 class SignalResponse(BaseModel):
     id: int
     queue_id: str
+    account_id: Optional[int]
     group_id: str
     message_id: Optional[int]
     raw_message: str
@@ -135,6 +139,20 @@ class SignalResponse(BaseModel):
 
 # ── Account Models ──
 
+class TradingAccountCreate(BaseModel):
+    name: str
+    platform: str = "MT5"
+    account_number: Optional[str] = None
+
+class TradingAccountResponse(BaseModel):
+    id: int
+    name: str
+    platform: str
+    account_number: Optional[str]
+    token: str
+    is_active: bool
+    created_at: datetime
+
 class AccountUpdateRequest(BaseModel):
     balance: float
     equity: float
@@ -146,8 +164,13 @@ class AccountUpdateRequest(BaseModel):
     account_name: str
     currency: str = "USD"
     leverage: int
+    gold_price: Optional[float] = None
+    gold_change_1h: Optional[float] = None
+    gold_change_4h: Optional[float] = None
+    gold_change_1d: Optional[float] = None
 
 class AccountResponse(BaseModel):
+    account_id: int
     balance: float
     equity: float
     margin: float
@@ -158,6 +181,10 @@ class AccountResponse(BaseModel):
     account_name: str
     currency: str
     leverage: int
+    gold_price: Optional[float] = None
+    gold_change_1h: Optional[float] = None
+    gold_change_4h: Optional[float] = None
+    gold_change_1d: Optional[float] = None
     updated_at: datetime
 
 
@@ -202,6 +229,17 @@ class DailyBreakdown(BaseModel):
     wins: int
     losses: int
 
+class ReportTradeItem(BaseModel):
+    ticket: Optional[int]
+    symbol: str
+    trade_type: str
+    lot_size: float
+    open_price: Optional[float]
+    close_price: Optional[float]
+    pnl: Optional[float]
+    close_reason: Optional[str]
+    closed_at: Optional[datetime]
+
 class ReportSummary(BaseModel):
     period: str
     date_from: str
@@ -218,6 +256,7 @@ class ReportSummary(BaseModel):
     worst_trade: float
     current_streak: int
     daily_breakdown: list[DailyBreakdown]
+    trades: Optional[list[ReportTradeItem]] = []
 
 class ReportTrend(BaseModel):
     current_period_pnl: float
@@ -240,3 +279,35 @@ class HealthResponse(BaseModel):
     ea_version: Optional[str]
     mt5_connected: bool
     db_size_mb: float
+
+
+# ── Action Log & Manual Sync Models ──
+
+class ActionLogCreate(BaseModel):
+    ticket: int
+    symbol: str
+    action_type: str
+    details: str
+    pnl: float = 0.0
+    current_price: Optional[float] = None
+    lot_size: Optional[float] = None
+    trade_type: Optional[str] = None
+    account_id: Optional[int] = None
+
+class ManualTradeSyncItem(BaseModel):
+    ticket: int
+    symbol: str
+    trade_type: str
+    lot_size: float
+    open_price: float
+    close_price: float
+    pnl: float
+    commission: float = 0.0
+    swap: float = 0.0
+    opened_at: datetime
+    closed_at: datetime
+    close_reason: str
+
+class ManualTradeSyncRequest(BaseModel):
+    trades: list[ManualTradeSyncItem]
+

@@ -23,7 +23,7 @@ async def cmd_config(message: Message):
         try:
             configs = await api_client.get_config()
             msg = format_config(configs)
-            await message.reply(msg, parse_mode="Markdown")
+            await message.reply(msg, parse_mode="HTML")
         except Exception as e:
             await message.reply(f"❌ Không thể lấy cấu hình: {str(e)}")
         return
@@ -36,12 +36,12 @@ async def cmd_config(message: Message):
     if len(kv) != 2:
         await message.reply(
             "❌ Cú pháp sai. Hãy dùng:\n"
-            "• `/config` — Xem cấu hình\n"
-            "• `/config default_lot=0.02` — Đổi số lot mặc định\n"
-            "• `/config queue_expire_minutes=20` — Đổi thời gian hết hạn hàng đợi\n"
-            "• `/config [SYMBOL]=[LOT]` — Đặt ghi đè lot (VD: `/config XAUUSD=0.02`)\n"
-            "• `/config remove [SYMBOL]` — Xóa ghi đè lot (VD: `/config remove XAUUSD`)",
-            parse_mode="Markdown"
+            "• <code>/config</code> — Xem cấu hình\n"
+            "• <code>/config default_lot=0.02</code> — Đổi số lot mặc định\n"
+            "• <code>/config queue_expire_minutes=20</code> — Đổi thời gian hết hạn hàng đợi\n"
+            "• <code>/config [SYMBOL]=[LOT]</code> — Đặt ghi đè lot (VD: <code>/config XAUUSD=0.02</code>)\n"
+            "• <code>/config remove [SYMBOL]</code> — Xóa ghi đè lot (VD: <code>/config remove XAUUSD</code>)",
+            parse_mode="HTML"
         )
         return
         
@@ -51,7 +51,7 @@ async def cmd_config(message: Message):
         # Nếu key là một trong các cấu hình chính
         if key.lower() in ["default_lot", "queue_expire_minutes", "sl_buffer_pips", "mode"]:
             await api_client.update_config(key.lower(), value)
-            await message.reply(f"✅ Đã cập nhật cấu hình **{key.lower()}** thành `{value}`.", parse_mode="Markdown")
+            await message.reply(f"✅ Đã cập nhật cấu hình <b>{key.lower()}</b> thành <code>{value}</code>.")
         else:
             # Nếu không phải, mặc định coi đây là Lot Override cho Symbol (VD: XAUUSD=0.02)
             symbol = key.upper()
@@ -64,7 +64,7 @@ async def cmd_config(message: Message):
                 return
                 
             await api_client.set_lot_override(symbol, lot_size)
-            await message.reply(f"✅ Đã thiết lập lot override cho **{symbol}** là `{lot_size:.2f}` lot.", parse_mode="Markdown")
+            await message.reply(f"✅ Đã thiết lập lot override cho <b>{symbol}</b> là <code>{lot_size:.2f}</code> lot.")
             
     except Exception as e:
         await message.reply(f"❌ Cập nhật cấu hình thất bại: {str(e)}")
@@ -77,7 +77,7 @@ async def cmd_mode(message: Message):
         
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply("❌ Vui lòng chọn chế độ: `/mode auto` hoặc `/mode queue`", parse_mode="Markdown")
+        await message.reply("❌ Vui lòng chọn chế độ: <code>/mode auto</code> hoặc <code>/mode queue</code>")
         return
         
     mode_val = parts[1].lower().strip()
@@ -88,7 +88,7 @@ async def cmd_mode(message: Message):
     try:
         await api_client.update_config("mode", mode_val)
         mode_name = "Tự động đặt lệnh (Auto)" if mode_val == "auto" else "Hàng đợi duyệt (Queue)"
-        await message.reply(f"✅ Đã chuyển hệ thống sang chế độ: **{mode_name}**.", parse_mode="Markdown")
+        await message.reply(f"✅ Đã chuyển hệ thống sang chế độ: <b>{mode_name}</b>.")
     except Exception as e:
         await message.reply(f"❌ Thay đổi chế độ thất bại: {str(e)}")
 
@@ -100,13 +100,13 @@ async def cmd_config_remove(message: Message):
         
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("❌ Cú pháp: `/config remove [SYMBOL]`", parse_mode="Markdown")
+        await message.reply("❌ Cú pháp: <code>/config remove [SYMBOL]</code>")
         return
         
     symbol = parts[2].upper()
     
     try:
         await api_client.delete_lot_override(symbol)
-        await message.reply(f"✅ Đã xóa ghi đè lot size của **{symbol}**. Hệ thống sẽ sử dụng default lot cho cặp này.", parse_mode="Markdown")
+        await message.reply(f"✅ Đã xóa ghi đè lot size của <b>{symbol}</b>. Hệ thống sẽ sử dụng default lot cho cặp này.")
     except Exception as e:
         await message.reply(f"❌ Xóa lot override thất bại: {str(e)}")

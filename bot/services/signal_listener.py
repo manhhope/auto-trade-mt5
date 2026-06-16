@@ -85,15 +85,27 @@ async def start_listener(bot):
         await client.disconnect()
         return
         
-    # 2. Xác định Group Target để filter
-    group_target = config.signal_group_id
-    if group_target.startswith("-") or group_target.isdigit():
-        group_target = int(group_target)
-        
-    logger.info(f"Listening for messages in group ID/username: {group_target}")
+    # 2. Xác định các Group/Channel Target để filter
+    chats_to_listen = []
     
-    # 3. Đăng ký event handler lắng nghe tin nhắn mới từ group chỉ định
-    @client.on(events.NewMessage(chats=group_target))
+    # Kênh chính
+    group_target = config.signal_group_id
+    if group_target:
+        if group_target.startswith("-") or group_target.isdigit():
+            group_target = int(group_target)
+        chats_to_listen.append(group_target)
+        
+    # Kênh phụ (Backup)
+    backup_target = config.signal_group_backup_id
+    if backup_target:
+        if backup_target.startswith("-") or backup_target.isdigit():
+            backup_target = int(backup_target)
+        chats_to_listen.append(backup_target)
+        
+    logger.info(f"Listening for messages in groups/channels: {chats_to_listen}")
+    
+    # 3. Đăng ký event handler lắng nghe tin nhắn mới từ các group chỉ định
+    @client.on(events.NewMessage(chats=chats_to_listen))
     async def message_handler(event):
         await handle_new_message(event, bot)
         

@@ -20,7 +20,7 @@ private:
    string   BuildHeaders()
    {
       return "Content-Type: application/json\r\n" +
-             "X-API-Key: " + m_api_key + "\r\n";
+             "X-Account-Token: " + m_api_key + "\r\n";
    }
 
 public:

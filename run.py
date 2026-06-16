@@ -31,7 +31,8 @@ async def expire_old_signals_loop():
     logger.info("Starting Queue Signal Expiry loop...")
     while True:
         try:
-            async with await get_db_connection() as db:
+            db = await get_db_connection()
+            try:
                 expire_min_str = await get_config_value(db, "queue_expire_minutes")
                 expire_min = int(expire_min_str) if expire_min_str else 15
                 
@@ -43,6 +44,8 @@ async def expire_old_signals_loop():
                 await db.commit()
                 if cursor.rowcount > 0:
                     logger.info(f"Đã hủy {cursor.rowcount} tín hiệu quá hạn (quá {expire_min} phút) khỏi hàng đợi.")
+            finally:
+                await db.close()
         except Exception as e:
             logger.error(f"Lỗi trong vòng lặp Queue Expiry: {e}")
         await asyncio.sleep(60.0)

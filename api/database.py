@@ -34,25 +34,42 @@ async def init_database():
     """
     os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
     async with aiosqlite.connect(DATABASE_PATH) as conn:
+        # 0. Tạo bảng accounts
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS accounts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                platform        TEXT NOT NULL,
+                account_number  TEXT,
+                token           TEXT UNIQUE NOT NULL,
+                is_active       BOOLEAN DEFAULT 0,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # 1. Tạo bảng config
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS config (
-                key         TEXT PRIMARY KEY,
+                account_id  INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+                key         TEXT NOT NULL,
                 value       TEXT NOT NULL,
-                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (account_id, key)
             );
         """)
 
         # 2. Tạo bảng lot_overrides
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS lot_overrides (
-                symbol      TEXT PRIMARY KEY,
+                account_id  INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+                symbol      TEXT NOT NULL,
                 lot_size    REAL NOT NULL,
-                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (account_id, symbol)
             );
         """)
 
-        # 3. Tạo bảng symbol_mapping
+        # 3. Tạo bảng symbol_mapping (Global)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS symbol_mapping (
                 alias       TEXT PRIMARY KEY,
@@ -65,6 +82,7 @@ async def init_database():
             CREATE TABLE IF NOT EXISTS signals (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 queue_id      TEXT UNIQUE NOT NULL,
+                account_id    INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
                 group_id      TEXT NOT NULL,
                 message_id    INTEGER,
                 raw_message   TEXT NOT NULL,
@@ -86,6 +104,7 @@ async def init_database():
             CREATE TABLE IF NOT EXISTS trades (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 uuid            TEXT UNIQUE NOT NULL,
+                account_id      INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
                 signal_id       INTEGER REFERENCES signals(id),
                 source          TEXT DEFAULT 'MANUAL',
                 symbol          TEXT NOT NULL,
@@ -117,7 +136,7 @@ async def init_database():
         # 6. Tạo bảng account_info
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS account_info (
-                id              INTEGER PRIMARY KEY DEFAULT 1,
+                account_id      INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
                 balance         REAL DEFAULT 0,
                 equity          REAL DEFAULT 0,
                 margin          REAL DEFAULT 0,
@@ -128,6 +147,10 @@ async def init_database():
                 account_name    TEXT DEFAULT '',
                 currency        TEXT DEFAULT 'USD',
                 leverage        INTEGER DEFAULT 0,
+                gold_price      REAL,
+                gold_change_1h  REAL,
+                gold_change_4h  REAL,
+                gold_change_1d  REAL,
                 updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -135,14 +158,29 @@ async def init_database():
         # 7. Tạo bảng ea_heartbeat
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS ea_heartbeat (
-                id            INTEGER PRIMARY KEY DEFAULT 1,
+                account_id    INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
                 last_ping     DATETIME,
                 ea_version    TEXT DEFAULT '1.0',
                 mt5_connected BOOLEAN DEFAULT 0
             );
         """)
 
+        # 7.5. Tạo bảng action_history để lưu vết các hành động của EA
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS action_history (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id    INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+                ticket        INTEGER,
+                symbol        TEXT,
+                action_type   TEXT NOT NULL,
+                details       TEXT NOT NULL,
+                pnl           REAL DEFAULT 0,
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # 8. Tạo Indexes
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account_id);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_closed_at ON trades(closed_at);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_source ON trades(source);")
@@ -152,27 +190,49 @@ async def init_database():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_queue_id ON signals(queue_id);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_action_history_account ON action_history(account_id);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_action_history_created ON action_history(created_at);")
 
-        # 9. Seed data - Config
+        # 9. Seed Default Account if empty
+        async with conn.execute("SELECT COUNT(*) FROM accounts") as cursor:
+            row = await cursor.fetchone()
+            if row[0] == 0:
+                await conn.execute("""
+                    INSERT INTO accounts (id, name, platform, account_number, token, is_active)
+                    VALUES (1, 'Default MT5', 'MT5', '0', 'default-mt5-token', 1);
+                """)
+
+        # 10. Seed data - Config for default account
         configs = [
             ('mode', 'queue'),
             ('default_lot', '0.01'),
             ('queue_expire_minutes', '15'),
-            ('sl_buffer_pips', '0')
+            ('sl_buffer_pips', '0'),
+            ('trailing_enabled', 'true'),
+            ('trailing_be_pips', '15'),       # Ngưỡng breakeven
+            ('trailing_be_offset', '2'),      # Buffer pip trên entry
+            ('trailing_step_pips', '10'),     # Bước trailing
+            ('trailing_step_distance', '8'),  # Khoảng dời mỗi bước
+            ('partial_close_enabled', 'false'),
+            ('partial_close_pips', '30'),     # Ngưỡng chốt 1 phần (cũ)
+            ('partial_close_ratio', '0.5'),   # Tỷ lệ chốt (cũ)
+            ('partial_close_ratios', '33/33/33'), # Tỷ lệ chốt lời nhiều bước
+            ('partial_close_pips_stages', '50/100/'), # Khoảng cách pips tương ứng cho từng bước
+            ('trailing_manual_enabled', 'false')  # Trailing cho lệnh thủ công
         ]
         for key, value in configs:
             await conn.execute(
-                "INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO config (account_id, key, value) VALUES (1, ?, ?)",
                 (key, value)
             )
 
-        # 10. Seed data - Symbol mapping
+        # 11. Seed data - Symbol mapping
         mappings = [
-            ('GOLD', 'XAUUSD'), ('gold', 'XAUUSD'), ('Gold', 'XAUUSD'),
-            ('XAU', 'XAUUSD'), ('xau', 'XAUUSD'),
-            ('XAUUSD', 'XAUUSD'), ('xauusd', 'XAUUSD'),
-            ('XAUUSDT', 'XAUUSD'), ('xauusdt', 'XAUUSD'),
-            ('Vàng', 'XAUUSD'), ('vàng', 'XAUUSD'), ('VÀNG', 'XAUUSD')
+            ('GOLD', 'XAUUSDm'), ('gold', 'XAUUSDm'), ('Gold', 'XAUUSDm'),
+            ('XAU', 'XAUUSDm'), ('xau', 'XAUUSDm'),
+            ('XAUUSD', 'XAUUSDm'), ('xauusd', 'XAUUSDm'),
+            ('XAUUSDT', 'XAUUSDm'), ('xauusdt', 'XAUUSDm'),
+            ('Vàng', 'XAUUSDm'), ('vàng', 'XAUUSDm'), ('VÀNG', 'XAUUSDm')
         ]
         for alias, mt5_symbol in mappings:
             await conn.execute(
@@ -180,8 +240,11 @@ async def init_database():
                 (alias, mt5_symbol)
             )
 
-        # 11. Seed data - Account Info & Heartbeat default rows
-        await conn.execute("INSERT OR IGNORE INTO account_info (id) VALUES (1);")
-        await conn.execute("INSERT OR IGNORE INTO ea_heartbeat (id) VALUES (1);")
+        # Cập nhật các bản ghi cũ từ XAUUSD -> XAUUSDm
+        await conn.execute("UPDATE symbol_mapping SET mt5_symbol = 'XAUUSDm' WHERE mt5_symbol = 'XAUUSD';")
+
+        # 12. Seed data - Account Info & Heartbeat default rows
+        await conn.execute("INSERT OR IGNORE INTO account_info (account_id) VALUES (1);")
+        await conn.execute("INSERT OR IGNORE INTO ea_heartbeat (account_id) VALUES (1);")
 
         await conn.commit()

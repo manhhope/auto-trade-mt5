@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from api.database import init_database
 from api.middleware.auth import APIKeyMiddleware
-from api.routers import trades, signals, account, config_router, reports, health
+from api.routers import trades, signals, account, config_router, reports, health, action_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(account.router)
     app.include_router(config_router.router)
     app.include_router(reports.router)
+    app.include_router(action_router.router)
     
     @app.get("/", tags=["General"])
     async def index():

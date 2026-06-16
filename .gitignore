@@ -10,3 +10,4 @@ __pycache__/
 .vscode/
 *.log
 data/*.log
+data/default_account_token.txt
