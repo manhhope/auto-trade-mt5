@@ -1,10 +1,8 @@
-import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import aiosqlite
 from api.models import (
-    TradeCreateRequest, TradeUpdateRequest, TradeResponse, 
-    TradeStatus, TradeSource, CloseReason
+    TradeCreateRequest, TradeUpdateRequest, TradeStatus
 )
 
 async def dict_from_row(row: aiosqlite.Row) -> Dict[str, Any]:
@@ -94,9 +92,7 @@ async def create_trade(db: aiosqlite.Connection, req: TradeCreateRequest) -> Dic
     await db.commit()
     
     # 5. Fetch and return
-    async with db.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)) as c:
-        row = await c.fetchone()
-        return await dict_from_row(row)
+    return await get_trade_by_id(db, trade_id)
 
 async def get_trades(
     db: aiosqlite.Connection,
@@ -107,26 +103,31 @@ async def get_trades(
     account_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """Lấy danh sách trades theo các bộ lọc"""
-    query = "SELECT * FROM trades WHERE 1=1"
+    query = """
+        SELECT t.*, u.telegram_id, a.account_number FROM trades t
+        LEFT JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN users u ON a.user_id = u.id
+        WHERE 1=1
+    """
     params = []
     
     if account_id is not None:
-        query += " AND account_id = ?"
+        query += " AND t.account_id = ?"
         params.append(account_id)
         
     if status is not None:
-        query += " AND status = ?"
+        query += " AND t.status = ?"
         params.append(status)
         
     if close_requested is not None:
-        query += " AND close_requested = ?"
+        query += " AND t.close_requested = ?"
         params.append(1 if close_requested else 0)
         
     if notified is not None:
-        query += " AND notified = ?"
+        query += " AND t.notified = ?"
         params.append(1 if notified else 0)
         
-    query += " ORDER BY created_at DESC LIMIT ?"
+    query += " ORDER BY t.created_at DESC LIMIT ?"
     params.append(limit)
     
     async with db.execute(query, params) as cursor:
@@ -135,7 +136,13 @@ async def get_trades(
 
 async def get_trade_by_id(db: aiosqlite.Connection, trade_id: int) -> Optional[Dict[str, Any]]:
     """Lấy chi tiết trade theo ID"""
-    async with db.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)) as cursor:
+    query = """
+        SELECT t.*, u.telegram_id, a.account_number FROM trades t
+        LEFT JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN users u ON a.user_id = u.id
+        WHERE t.id = ?
+    """
+    async with db.execute(query, (trade_id,)) as cursor:
         row = await cursor.fetchone()
         return await dict_from_row(row) if row else None
 

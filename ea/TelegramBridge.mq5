@@ -30,6 +30,7 @@ const string   FILE_DEDUP = "executed_trades.csv";
 const string   FILE_PARTIAL = "partial_closed.csv";
 
 // Trailing Stop & Partial Close Global Configuration (đọc từ API)
+int    g_default_sl_pips = 0;
 bool   g_trail_enabled = false;
 int    g_trail_be_pips = 15;
 int    g_trail_be_offset = 2;
@@ -551,6 +552,7 @@ void PollTrailingConfig()
    g_partial_enabled      = g_json.GetBool(response, "partial_enabled");
    g_partial_pips         = g_json.GetInteger(response, "partial_pips");
    g_partial_ratio        = g_json.GetDouble(response, "partial_ratio");
+   g_default_sl_pips      = g_json.GetInteger(response, "default_sl_pips");
    
    // Đọc cấu hình chốt lời nhiều bước mới
    string partial_ratios_api = g_json.GetString(response, "partial_ratios");
@@ -593,6 +595,35 @@ void ManageTrailingStop()
          if(pip_size <= 0) continue;
          
          int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+         
+         // 0. Tự động áp dụng SL mặc định nếu chưa có
+         if(g_default_sl_pips > 0 && sl == 0.0)
+         {
+            double default_sl = 0.0;
+            if(type == POSITION_TYPE_BUY)
+            {
+               default_sl = open_price - g_default_sl_pips * pip_size;
+            }
+            else if(type == POSITION_TYPE_SELL)
+            {
+               default_sl = open_price + g_default_sl_pips * pip_size;
+            }
+            
+            if(default_sl > 0)
+            {
+               default_sl = NormalizeDouble(default_sl, digits);
+               Print("ManageTrailingStop: Them SL mac dinh cho vi the #", ticket, " (", symbol, "): ", default_sl);
+               if(g_trade.PositionModify(ticket, default_sl, tp))
+               {
+                  sl = default_sl; // Cap nhat de logic ben duoi dung tiep
+                  ReportActionLog(ticket, symbol, "DEFAULT_SL", "0 -> " + DoubleToString(default_sl, digits), 0.0, current_price, volume, (type == POSITION_TYPE_BUY) ? "BUY" : "SELL");
+               }
+               else
+               {
+                  Print("ManageTrailingStop: LOI them SL mac dinh cho vi the #", ticket, ": ", g_trade.ResultRetcodeDescription());
+               }
+            }
+         }
          
          // 1. Tính lợi nhuận theo pips
          double profit_pips = 0.0;
@@ -1053,6 +1084,50 @@ bool ExecuteTrade(TradeData &trade, ulong &out_ticket, double &out_price, string
    
    double sl = trade.stop_loss;
    double tp = trade.take_profit;
+   
+   // Tự động áp dụng SL mặc định nếu cấu hình default_sl_pips > 0 và lệnh chưa có SL
+   if(sl <= 0.0 && g_default_sl_pips > 0)
+   {
+      double pip_size = GetPipSize(symbol);
+      if(pip_size > 0)
+      {
+         int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+         if(type == "BUY")
+         {
+            double entry_price = SymbolInfoDouble(symbol, SYMBOL_ASK);
+            sl = entry_price - g_default_sl_pips * pip_size;
+            sl = NormalizeDouble(sl, digits);
+            Print("ExecuteTrade: Ap dung SL mac dinh (", g_default_sl_pips, " pips) cho BUY ", symbol, ": ", sl);
+         }
+         else if(type == "SELL")
+         {
+            double entry_price = SymbolInfoDouble(symbol, SYMBOL_BID);
+            sl = entry_price + g_default_sl_pips * pip_size;
+            sl = NormalizeDouble(sl, digits);
+            Print("ExecuteTrade: Ap dung SL mac dinh (", g_default_sl_pips, " pips) cho SELL ", symbol, ": ", sl);
+         }
+         else if(type == "BUY_LIMIT" || type == "BUY_STOP")
+         {
+            double entry_price = trade.price;
+            if(entry_price > 0)
+            {
+               sl = entry_price - g_default_sl_pips * pip_size;
+               sl = NormalizeDouble(sl, digits);
+               Print("ExecuteTrade: Ap dung SL mac dinh (", g_default_sl_pips, " pips) cho Pending BUY ", symbol, ": ", sl);
+            }
+         }
+         else if(type == "SELL_LIMIT" || type == "SELL_STOP")
+         {
+            double entry_price = trade.price;
+            if(entry_price > 0)
+            {
+               sl = entry_price + g_default_sl_pips * pip_size;
+               sl = NormalizeDouble(sl, digits);
+               Print("ExecuteTrade: Ap dung SL mac dinh (", g_default_sl_pips, " pips) cho Pending SELL ", symbol, ": ", sl);
+            }
+         }
+      }
+   }
    
    // 3. Thực hiện đặt lệnh Market deal hoặc Pending
    if(type == "BUY" || type == "SELL")

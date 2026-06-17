@@ -60,11 +60,11 @@ def detect_project_type(project_path: Path) -> dict:
         result["type"] = "python"
         
         # Check for ruff
-        result["linters"].append({"name": "ruff", "cmd": ["ruff", "check", "."]})
+        result["linters"].append({"name": "ruff", "cmd": [sys.executable, "-m", "ruff", "check", "api", "bot", "tests"]})
         
         # Check for mypy
         if (project_path / "mypy.ini").exists() or (project_path / "pyproject.toml").exists():
-            result["linters"].append({"name": "mypy", "cmd": ["mypy", "."]})
+            result["linters"].append({"name": "mypy", "cmd": [sys.executable, "-m", "mypy", "."]})
     
     return result
 

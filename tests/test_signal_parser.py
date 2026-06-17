@@ -1,5 +1,4 @@
-import pytest
-from bot.parsers.signal_parser import parse_signal, ParsedSignal
+from bot.parsers.signal_parser import parse_signal
 
 def test_parse_en_inline_gold():
     text = "BUY GOLD 2350.50 SL 2340 TP 2370"

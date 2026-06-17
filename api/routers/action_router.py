@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 import aiosqlite
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from api.database import get_db
 from api.models import ActionLogCreate
 from api.services.config_service import get_active_account_id
@@ -35,12 +35,10 @@ async def create_action_log(request: Request, req: ActionLogCreate, db: aiosqlit
             from bot.config import config
             from bot.services.background_tasks import send_telegram_safe
             
-            # Lấy thông tin account để hiển thị
-            async with db.execute("SELECT name, account_number FROM accounts WHERE id = ?", (account_id,)) as cursor:
+            # Lấy thông tin account_number để hiển thị
+            async with db.execute("SELECT account_number FROM accounts WHERE id = ?", (account_id,)) as cursor:
                 row = await cursor.fetchone()
-                acc_name = row["name"] if row else f"ID {account_id}"
-                acc_num = row["account_number"] if row else ""
-                acc_str = f" [{acc_name} - {acc_num}]" if acc_num else f" [{acc_name}]"
+                acc_num = row[0] if (row and row[0]) else str(account_id)
             
             # Format PnL
             pnl_icon = "❇️" if req.pnl >= 0 else "❌"
@@ -50,24 +48,37 @@ async def create_action_log(request: Request, req: ActionLogCreate, db: aiosqlit
             
             if req.action_type == "TRAILING_SL":
                 msg = (
-                    f"🔔 **[TRAILING]**{acc_str} {dir_icon} Dời SL `#{req.ticket}`: `{req.details}` | "
-                    f"Giá: `{req.current_price or 'N/A'}` ({formatted_pnl})"
+                    f"🔔{acc_num} {dir_icon} Move SL {req.details} | "
+                    f"Price: {req.current_price or 'N/A'} ({formatted_pnl})"
                 )
             elif req.action_type == "PARTIAL_CLOSE":
-                time_str = datetime.now().strftime("%H:%M")
                 lot_closed = req.lot_size or 0.01
                 msg = (
-                    f"❎ **[{time_str}]**{acc_str} {dir_icon} Chốt lời {req.details} `#{req.ticket}`: "
-                    f"Khớp `{lot_closed:.2f}` lot ({formatted_pnl})"
+                    f"❎{acc_num} {dir_icon} Closed {req.details}: "
+                    f"{lot_closed:.2f} lot at {req.current_price or 'N/A'} ({formatted_pnl})"
                 )
             else:
                 msg = (
-                    f"ℹ️ **[EA Action]**{acc_str} {req.action_type} - Lệnh {dir_icon} `#{req.ticket}` ({req.symbol}):\n"
-                    f"Chi tiết: {req.details}\n"
-                    f"PnL: {formatted_pnl}"
+                    f"ℹ️{acc_num} {dir_icon} {req.action_type} {req.symbol}: "
+                    f"{req.details} ({formatted_pnl})"
                 )
                 
-            await send_telegram_safe(bot, config.owner_chat_id, msg)
+            # Tìm telegram_id của user sở hữu tài khoản này
+            telegram_id = None
+            async with db.execute(
+                """
+                SELECT u.telegram_id FROM users u
+                JOIN accounts a ON a.user_id = u.id
+                WHERE a.id = ?
+                """,
+                (account_id,)
+            ) as cursor:
+                user_row = await cursor.fetchone()
+                if user_row:
+                    telegram_id = user_row[0]
+                    
+            target_chat_id = int(telegram_id) if telegram_id else config.owner_chat_id
+            await send_telegram_safe(bot, target_chat_id, msg)
         except Exception as telegram_err:
             import logging
             logging.getLogger("api").error(f"Lỗi khi gửi thông báo Telegram action log: {telegram_err}")

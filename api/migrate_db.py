@@ -26,7 +26,6 @@ def run_migration():
     # Extract info from old account_info if it exists
     old_acc_num = 0
     old_acc_name = "BTC - NEW"
-    old_server = "Exness-MT5Real24"
     
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account_info';")
     if cursor.fetchone():
@@ -36,7 +35,7 @@ def run_migration():
             if row:
                 old_acc_num = row['account_number'] or 0
                 old_acc_name = row['account_name'] or "BTC - NEW"
-                old_server = row['server'] or "Exness-MT5Real24"
+                row['server'] or "Exness-MT5Real24"
         except Exception as e:
             print(f"Warning: Could not retrieve old account details: {e}")
 

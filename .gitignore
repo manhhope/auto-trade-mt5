@@ -1,7 +1,7 @@
 venv/
 .env
-data/*.db
-data/*.session
+data/*.db*
+data/*.session*
 data/signal_history.txt
 data/*.csv
 __pycache__/

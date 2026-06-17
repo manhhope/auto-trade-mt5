@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Optional
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 from bot.config import config
 from bot.services.api_client import api_client
@@ -26,10 +27,10 @@ async def send_telegram_safe(bot, chat_id: int, text: str, parse_mode: str = "Ma
     logger.error(f"Bỏ qua tin nhắn sau {1+max_retries} lần thử thất bại.")
     return False
 
-async def get_today_pnl_summary_str() -> str:
+async def get_today_pnl_summary_str(tg_user_id: Optional[int] = None) -> str:
     """Lấy tổng hợp P/L hôm nay để đính kèm thông báo"""
     try:
-        summary = await api_client.get_report_summary(period="day")
+        summary = await api_client.get_report_summary(period="day", tg_user_id=tg_user_id)
         pnl = summary.get("total_pnl", 0.0)
         wins = summary.get("winning_trades", 0)
         losses = summary.get("losing_trades", 0)
@@ -52,14 +53,16 @@ async def closed_trade_notification_loop(bot):
                 trade_id = trade["id"]
                 logger.info(f"Phát hiện lệnh đã đóng ID {trade_id}, đang gửi thông báo...")
                 
-                # Lấy tổng kết P/L hôm nay
-                today_summary = await get_today_pnl_summary_str()
+                # Lấy tổng kết P/L hôm nay cho user sở hữu trade này
+                tg_user_id = int(trade["telegram_id"]) if trade.get("telegram_id") else None
+                today_summary = await get_today_pnl_summary_str(tg_user_id=tg_user_id)
                 
                 # Format tin nhắn thông báo lệnh đóng
                 msg = format_trade_closed(trade, today_summary)
                 
-                # Gửi tin nhắn đến admin
-                sent = await send_telegram_safe(bot, config.owner_chat_id, msg)
+                # Gửi tin nhắn đến user sở hữu trade
+                target_chat_id = tg_user_id if tg_user_id else config.owner_chat_id
+                sent = await send_telegram_safe(bot, target_chat_id, msg)
                 
                 # Đánh dấu đã thông báo thành công
                 if sent:

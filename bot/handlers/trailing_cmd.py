@@ -1,13 +1,11 @@
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from bot.config import config
 from bot.services.api_client import api_client
 
 router = Router()
 
-def is_owner(message: Message) -> bool:
-    return message.from_user is not None and message.from_user.id == config.owner_chat_id
+
 
 def format_trailing_config(c: dict) -> str:
     """Định dạng cấu hình Trailing Stop đẹp mắt"""
@@ -42,15 +40,12 @@ def format_trailing_config(c: dict) -> str:
 @router.message(Command("trailing"))
 async def cmd_trailing(message: Message):
     """Xem và điều chỉnh cấu hình trailing stop"""
-    if not is_owner(message):
-        return
-        
     parts = message.text.split()
     
     # 1. Chỉ gõ /trailing -> Xem cấu hình
     if len(parts) == 1:
         try:
-            cfg = await api_client.get_trailing_config()
+            cfg = await api_client.get_trailing_config(tg_user_id=message.from_user.id)
             msg = format_trailing_config(cfg)
             await message.reply(msg, parse_mode="Markdown")
         except Exception as e:
@@ -65,7 +60,7 @@ async def cmd_trailing(message: Message):
         
     val_str = "true" if action == "on" else "false"
     try:
-        await api_client.update_config("trailing_enabled", val_str)
+        await api_client.update_config("trailing_enabled", val_str, tg_user_id=message.from_user.id)
         status_text = "BẬT" if action == "on" else "TẮT"
         await message.reply(f"✅ Đã **{status_text}** tính năng Trailing Stop.", parse_mode="Markdown")
     except Exception as e:
@@ -74,9 +69,6 @@ async def cmd_trailing(message: Message):
 @router.message(Command("trailing_manual"))
 async def cmd_trailing_manual(message: Message):
     """Bật/Tắt trailing stop cho các lệnh tự đặt bằng tay"""
-    if not is_owner(message):
-        return
-        
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/trailing_manual on` hoặc `/trailing_manual off`", parse_mode="Markdown")
@@ -89,7 +81,7 @@ async def cmd_trailing_manual(message: Message):
         
     val_str = "true" if action == "on" else "false"
     try:
-        await api_client.update_config("trailing_manual_enabled", val_str)
+        await api_client.update_config("trailing_manual_enabled", val_str, tg_user_id=message.from_user.id)
         status_text = "BẬT" if action == "on" else "TẮT"
         await message.reply(f"✅ Đã **{status_text}** tính năng Trailing Stop cho lệnh tự vào (thủ công).", parse_mode="Markdown")
     except Exception as e:
@@ -97,59 +89,54 @@ async def cmd_trailing_manual(message: Message):
 
 @router.message(Command("sl_be"))
 async def cmd_sl_be(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/sl_be [số pips]` (VD: `/sl_be 15`)")
         return
     try:
-        await api_client.update_config("trailing_be_pips", parts[1])
+        await api_client.update_config("trailing_be_pips", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật ngưỡng kích hoạt Breakeven là `{parts[1]}` pips.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("sl_be_offset"))
 async def cmd_sl_be_offset(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/sl_be_offset [số pips]` (VD: `/sl_be_offset 2`)")
         return
     try:
-        await api_client.update_config("trailing_be_offset", parts[1])
+        await api_client.update_config("trailing_be_offset", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật offset Breakeven là `{parts[1]}` pips.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("sl_step"))
 async def cmd_sl_step(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/sl_step [số pips]` (VD: `/sl_step 10`)")
         return
     try:
-        await api_client.update_config("trailing_step_pips", parts[1])
+        await api_client.update_config("trailing_step_pips", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật bước dời SL là `{parts[1]}` pips.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("sl_trail"))
 async def cmd_sl_trail(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/sl_trail [số pips]` (VD: `/sl_trail 8`)")
         return
     try:
-        await api_client.update_config("trailing_step_distance", parts[1])
+        await api_client.update_config("trailing_step_distance", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật khoảng dời SL mỗi bước là `{parts[1]}` pips.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("partial"))
 async def cmd_partial(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Hãy chọn chế độ: `/partial on` hoặc `/partial off`", parse_mode="Markdown")
@@ -160,7 +147,7 @@ async def cmd_partial(message: Message):
         return
     val_str = "true" if action == "on" else "false"
     try:
-        await api_client.update_config("partial_close_enabled", val_str)
+        await api_client.update_config("partial_close_enabled", val_str, tg_user_id=message.from_user.id)
         status_text = "BẬT" if action == "on" else "TẮT"
         await message.reply(f"✅ Đã **{status_text}** tính năng chốt lời một phần (Partial Close).", parse_mode="Markdown")
     except Exception as e:
@@ -168,52 +155,48 @@ async def cmd_partial(message: Message):
 
 @router.message(Command("partial_pips"))
 async def cmd_partial_pips(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/partial_pips [số pips]` (VD: `/partial_pips 30`)")
         return
     try:
-        await api_client.update_config("partial_close_pips", parts[1])
+        await api_client.update_config("partial_close_pips", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật ngưỡng chốt lời một phần là `{parts[1]}` pips.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("partial_ratio"))
 async def cmd_partial_ratio(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/partial_ratio [tỉ lệ]` (VD: `/partial_ratio 0.5` cho 50%)")
         return
     try:
-        await api_client.update_config("partial_close_ratio", parts[1])
+        await api_client.update_config("partial_close_ratio", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật tỉ lệ chốt lời một phần là `{parts[1]}` lot.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("partial_stages"))
 async def cmd_partial_stages(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/partial_stages [tỷ lệ các bước]` (VD: `/partial_stages 33/33/33` hoặc `/partial_stages 25/50/25`)")
         return
     try:
-        await api_client.update_config("partial_close_ratios", parts[1])
+        await api_client.update_config("partial_close_ratios", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật tỷ lệ các bước chốt lời là `{parts[1]}`.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
 
 @router.message(Command("partial_pips_stages"))
 async def cmd_partial_pips_stages(message: Message):
-    if not is_owner(message): return
     parts = message.text.split()
     if len(parts) < 2:
         await message.reply("❌ Cú pháp: `/partial_pips_stages [số pips kích hoạt]` (VD: `/partial_pips_stages 50/100/` hoặc `/partial_pips_stages 50/100/150`)")
         return
     try:
-        await api_client.update_config("partial_close_pips_stages", parts[1])
+        await api_client.update_config("partial_close_pips_stages", parts[1], tg_user_id=message.from_user.id)
         await message.reply(f"✅ Đã cập nhật số pips kích hoạt các bước chốt lời là `{parts[1]}`.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")

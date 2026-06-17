@@ -74,6 +74,8 @@ class TradeResponse(BaseModel):
     id: int
     uuid: str
     account_id: Optional[int]
+    telegram_id: Optional[str] = None
+    account_number: Optional[str] = None
     signal_id: Optional[int]
     source: str
     symbol: str
@@ -310,4 +312,14 @@ class ManualTradeSyncItem(BaseModel):
 
 class ManualTradeSyncRequest(BaseModel):
     trades: list[ManualTradeSyncItem]
+
+
+# ── TradingView Webhook Models ──
+
+class TradingViewWebhookRequest(BaseModel):
+    symbol: str
+    action: str  # BUY, SELL, BUY_LIMIT, etc.
+    price: Optional[float] = None
+    sl: Optional[float] = None
+    tp: Optional[float] = None
 

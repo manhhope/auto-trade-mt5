@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 import aiosqlite
-from typing import Dict, Any, Optional
+from typing import Optional
 from api.database import get_db
 from api.models import ConfigUpdateRequest, LotOverrideRequest
 import api.services.config_service as config_service
@@ -15,7 +15,7 @@ ALLOWED_CONFIG_KEYS = {
     "trailing_step_pips", "trailing_step_distance",
     "partial_close_enabled", "partial_close_pips", "partial_close_ratio",
     "partial_close_ratios", "partial_close_pips_stages",
-    "trailing_manual_enabled", "signal_execution_mode"
+    "trailing_manual_enabled", "signal_execution_mode", "default_sl_pips"
 }
 
 @router.get("")
@@ -76,7 +76,8 @@ async def get_trailing_configuration(
             "partial_ratio": to_float(configs.get("partial_close_ratio", "0.5")),
             "partial_ratios": str(configs.get("partial_close_ratios", "33/33/33")),
             "partial_pips_stages": str(configs.get("partial_close_pips_stages", "50/100/")),
-            "manual_enabled": to_bool(configs.get("trailing_manual_enabled", "false"))
+            "manual_enabled": to_bool(configs.get("trailing_manual_enabled", "false")),
+            "default_sl_pips": to_int(configs.get("default_sl_pips", "0"))
         }
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -134,7 +135,7 @@ async def update_config(
     elif key in ["trailing_enabled", "partial_close_enabled", "trailing_manual_enabled"]:
         if value.lower() not in ["true", "false"]:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{key} phải là 'true' hoặc 'false'")
-    elif key in ["trailing_be_pips", "trailing_be_offset", "trailing_step_pips", "trailing_step_distance", "partial_close_pips"]:
+    elif key in ["trailing_be_pips", "trailing_be_offset", "trailing_step_pips", "trailing_step_distance", "partial_close_pips", "default_sl_pips"]:
         try:
             val = int(value)
             if val < 0:

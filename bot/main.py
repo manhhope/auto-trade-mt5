@@ -1,6 +1,5 @@
 import logging
 import asyncio
-from aiohttp import ClientTimeout
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -8,8 +7,9 @@ from aiogram.enums import ParseMode
 from aiogram.types import TelegramObject
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 from bot.config import config
-from bot.handlers import start, trade, manage, signal, config_cmd, report, trailing_cmd, menu_click, account_manager
+from bot.handlers import start, trade, manage, signal, config_cmd, report, trailing_cmd, menu_click, account_manager, source_manager
 from typing import Callable, Dict, Any, Awaitable
+from bot.middlewares.auth import AuthMiddleware
 
 logger = logging.getLogger("bot")
 
@@ -58,6 +58,10 @@ dp = Dispatcher()
 # Đăng ký retry middleware cho tất cả update types
 dp.update.outer_middleware(RetryMiddleware(max_retries=2, retry_delay=3.0))
 
+# Đăng ký auth middleware để kiểm tra quyền truy cập của người dùng
+dp.message.middleware(AuthMiddleware())
+dp.callback_query.middleware(AuthMiddleware())
+
 # Đăng ký các Router handlers
 dp.include_router(start.router)
 dp.include_router(trade.router)
@@ -68,6 +72,7 @@ dp.include_router(trailing_cmd.router)
 dp.include_router(menu_click.router)
 dp.include_router(report.router)
 dp.include_router(account_manager.router)
+dp.include_router(source_manager.router)
 
 async def start_bot():
     """Khởi chạy Telegram Bot"""

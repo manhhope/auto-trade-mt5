@@ -1,5 +1,4 @@
 import os
-import pytest
 import aiosqlite
 import pytest_asyncio
 
@@ -17,16 +16,16 @@ test_token = os.environ.get("TELEGRAM_BOT_TEST_TOKEN")
 if test_token:
     os.environ["TELEGRAM_BOT_TOKEN"] = test_token
 
-from httpx import AsyncClient
-from typing import AsyncGenerator
+from httpx import AsyncClient  # noqa: E402
+from typing import AsyncGenerator  # noqa: E402
 
 # Thiết lập biến môi trường chỉ cho test và tạo thư mục data
 os.environ["DATABASE_PATH"] = "data/test_trades.db"
 os.environ["API_KEY"] = "testkey"
 os.makedirs("data", exist_ok=True)
 
-from api.main import create_app
-from api.database import get_db, init_database
+from api.main import create_app  # noqa: E402
+from api.database import get_db, init_database  # noqa: E402
 
 @pytest_asyncio.fixture
 async def db() -> AsyncGenerator[aiosqlite.Connection, None]:

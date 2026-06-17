@@ -82,9 +82,19 @@ async def create_signal(db: aiosqlite.Connection, req: SignalCreateRequest) -> D
         row = await c.fetchone()
         signal_dict = await dict_from_signal_row(row)
         
-    # 4. Kiểm tra chế độ Auto Mode để tự động confirm lệnh ngay lập tức
+    # 4. Kiểm tra chế độ Auto Mode của nguồn để tự động confirm lệnh ngay lập tức
     if req.parse_success:
-        mode = await config_service.get_config_value(db, "mode", account_id)
+        mode = "queue"
+        async with db.execute(
+            "SELECT mode FROM signal_sources WHERE account_id = ? AND source_key = ? LIMIT 1",
+            (account_id, str(req.group_id))
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                mode = row[0]
+            else:
+                mode = await config_service.get_config_value(db, "mode", account_id) or "queue"
+
         if mode == "auto":
             # Tự động confirm lệnh
             trade = await confirm_signal(db, insert_id, SignalConfirmRequest(lot_override=None))
@@ -143,15 +153,27 @@ async def confirm_signal(db: aiosqlite.Connection, signal_id_or_queue_id: Any, r
         raise ValueError(f"Tín hiệu đang ở trạng thái {signal['status']}. Chỉ có thể xác nhận tín hiệu đang chờ duyệt (QUEUED).")
         
     # 2. Xác định các tài khoản đích để giao dịch
-    active_id = await config_service.get_active_account_id(db)
+    active_id = signal["account_id"]
+    if not active_id:
+        active_id = await config_service.get_active_account_id(db)
     
     # Đọc cấu hình chế độ chạy tín hiệu của tài khoản active
     signal_mode = await config_service.get_config_value(db, "signal_execution_mode", active_id) or "active"
     
     if signal_mode == "all":
-        async with db.execute("SELECT id FROM accounts") as cursor:
-            rows = await cursor.fetchall()
-            account_ids = [r["id"] for r in rows]
+        # Chỉ copy sang tất cả tài khoản của chính user đó
+        user_id = None
+        async with db.execute("SELECT user_id FROM accounts WHERE id = ?", (active_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                user_id = row[0]
+                
+        if user_id:
+            async with db.execute("SELECT id FROM accounts WHERE user_id = ?", (user_id,)) as cursor:
+                rows = await cursor.fetchall()
+                account_ids = [r[0] for r in rows]
+        else:
+            account_ids = [active_id]
     else:
         account_ids = [active_id]
         

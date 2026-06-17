@@ -34,10 +34,22 @@ async def init_database():
     """
     os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
     async with aiosqlite.connect(DATABASE_PATH) as conn:
+        # Create users table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id     TEXT UNIQUE NOT NULL,
+                username        TEXT,
+                is_approved     BOOLEAN DEFAULT 0,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # 0. Tạo bảng accounts
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS accounts (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 name            TEXT NOT NULL,
                 platform        TEXT NOT NULL,
                 account_number  TEXT,
@@ -46,6 +58,12 @@ async def init_database():
                 created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+        # Check if user_id column exists in accounts table
+        async with conn.execute("PRAGMA table_info(accounts);") as cursor:
+            columns = [row[1] for row in await cursor.fetchall()]
+            if columns and "user_id" not in columns:
+                await conn.execute("ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
 
         # 1. Tạo bảng config
         await conn.execute("""
@@ -179,6 +197,27 @@ async def init_database():
             );
         """)
 
+        # Create signal_sources table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS signal_sources (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id      INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+                source_type     TEXT NOT NULL, -- 'telegram_group' hoặc 'tradingview'
+                source_key      TEXT NOT NULL, -- Group ID hoặc Webhook token_key
+                name            TEXT NOT NULL, -- Tên hiển thị thân thiện
+                mode            TEXT DEFAULT 'queue', -- 'auto' hoặc 'queue'
+                is_active       BOOLEAN DEFAULT 1,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(account_id, source_type, source_key)
+            );
+        """)
+
+        # Check if is_active column exists in signal_sources table
+        async with conn.execute("PRAGMA table_info(signal_sources);") as cursor:
+            columns = [row[1] for row in await cursor.fetchall()]
+            if columns and "is_active" not in columns:
+                await conn.execute("ALTER TABLE signal_sources ADD COLUMN is_active BOOLEAN DEFAULT 1;")
+
         # 8. Tạo Indexes
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account_id);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);")
@@ -192,6 +231,8 @@ async def init_database():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_queue_id ON signals(queue_id);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_action_history_account ON action_history(account_id);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_action_history_created ON action_history(created_at);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_sources_account ON signal_sources(account_id);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_sources_key ON signal_sources(source_type, source_key);")
 
         # 9. Seed Default Account if empty
         async with conn.execute("SELECT COUNT(*) FROM accounts") as cursor:
@@ -218,7 +259,8 @@ async def init_database():
             ('partial_close_ratio', '0.5'),   # Tỷ lệ chốt (cũ)
             ('partial_close_ratios', '33/33/33'), # Tỷ lệ chốt lời nhiều bước
             ('partial_close_pips_stages', '50/100/'), # Khoảng cách pips tương ứng cho từng bước
-            ('trailing_manual_enabled', 'false')  # Trailing cho lệnh thủ công
+            ('trailing_manual_enabled', 'false'),  # Trailing cho lệnh thủ công
+            ('default_sl_pips', '0')
         ]
         for key, value in configs:
             await conn.execute(
@@ -246,5 +288,26 @@ async def init_database():
         # 12. Seed data - Account Info & Heartbeat default rows
         await conn.execute("INSERT OR IGNORE INTO account_info (account_id) VALUES (1);")
         await conn.execute("INSERT OR IGNORE INTO ea_heartbeat (account_id) VALUES (1);")
+
+        # 13. Seed default Telegram signal sources from env if not present
+        group_id = os.getenv("SIGNAL_GROUP_ID")
+        backup_id = os.getenv("SIGNAL_GROUP_BACKUP_ID")
+        default_mode = os.getenv("DEFAULT_MODE", "queue")
+
+        async with conn.execute("SELECT id FROM accounts") as cursor:
+            accounts = await cursor.fetchall()
+
+        for acc in accounts:
+            acc_id = acc[0]
+            if group_id:
+                await conn.execute("""
+                    INSERT OR IGNORE INTO signal_sources (account_id, source_type, source_key, name, mode)
+                    VALUES (?, 'telegram_group', ?, 'Kênh tín hiệu chính', ?);
+                """, (acc_id, str(group_id), default_mode))
+            if backup_id:
+                await conn.execute("""
+                    INSERT OR IGNORE INTO signal_sources (account_id, source_type, source_key, name, mode)
+                    VALUES (?, 'telegram_group', ?, 'Kênh tín hiệu phụ', ?);
+                """, (acc_id, str(backup_id), default_mode))
 
         await conn.commit()

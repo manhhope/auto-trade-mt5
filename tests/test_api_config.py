@@ -14,6 +14,7 @@ async def test_get_trailing_config(client: AsyncClient):
     assert data["partial_enabled"] is False
     assert data["partial_pips"] == 30
     assert data["partial_ratio"] == 0.5
+    assert data["default_sl_pips"] == 0
 
 @pytest.mark.asyncio
 async def test_update_trailing_config_success(client: AsyncClient):
@@ -40,6 +41,14 @@ async def test_update_trailing_config_success(client: AsyncClient):
     assert response.status_code == 200
     response = await client.put("/api/config/partial_close_pips_stages", json={"value": "50/100/150"})
     assert response.status_code == 200
+    
+    # Cập nhật default_sl_pips sang 50
+    response = await client.put("/api/config/default_sl_pips", json={"value": "50"})
+    assert response.status_code == 200
+    
+    # Đọc lại config gộp
+    response = await client.get("/api/config/trailing")
+    assert response.json()["default_sl_pips"] == 50
 
 @pytest.mark.asyncio
 async def test_update_trailing_config_validation_fail(client: AsyncClient):
@@ -67,6 +76,14 @@ async def test_update_trailing_config_validation_fail(client: AsyncClient):
     response = await client.put("/api/config/partial_close_pips_stages", json={"value": "50/abc"})
     assert response.status_code == 400
     
+    # default_sl_pips giá trị âm
+    response = await client.put("/api/config/default_sl_pips", json={"value": "-10"})
+    assert response.status_code == 400
+
+    # default_sl_pips không phải số nguyên
+    response = await client.put("/api/config/default_sl_pips", json={"value": "abc"})
+    assert response.status_code == 400
+
     # key không được phép chỉnh sửa
     response = await client.put("/api/config/non_existent_key", json={"value": "test"})
     assert response.status_code == 400

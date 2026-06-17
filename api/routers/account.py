@@ -8,7 +8,6 @@ from api.models import (
     AccountUpdateRequest, AccountResponse, PositionsSyncRequest, 
     ManualTradeSyncRequest, TradingAccountCreate, TradingAccountResponse
 )
-import api.services.trade_service as trade_service
 from api.services.config_service import get_active_account_id
 
 # Các bộ đệm lưu trữ vị thế đang chạy, tách biệt theo account_id
@@ -418,38 +417,55 @@ async def sync_closed_trades(request: Request, req: ManualTradeSyncRequest, db: 
 @router.get("/api/accounts", response_model=List[TradingAccountResponse])
 async def list_trading_accounts(request: Request, db: aiosqlite.Connection = Depends(get_db)):
     """
-    Liệt kê danh sách tất cả tài khoản giao dịch (Admin only).
+    Liệt kê danh sách tất cả tài khoản giao dịch.
     """
-    if not getattr(request.state, "is_admin", True):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ Admin mới có quyền truy cập")
+    user_id = getattr(request.state, "user_id", None)
+    is_admin = getattr(request.state, "is_admin", True)
+    
+    if is_admin and not user_id:
+        # Admin hệ thống thực sự: Xem toàn bộ tài khoản
+        query = "SELECT * FROM accounts ORDER BY created_at ASC"
+        params = ()
+    else:
+        # Người dùng thường: Chỉ xem tài khoản của chính mình
+        query = "SELECT * FROM accounts WHERE user_id = ? ORDER BY created_at ASC"
+        params = (user_id,)
         
-    async with db.execute("SELECT * FROM accounts ORDER BY created_at ASC") as cursor:
+    async with db.execute(query, params) as cursor:
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
 @router.post("/api/accounts", response_model=TradingAccountResponse, status_code=status.HTTP_201_CREATED)
 async def create_trading_account(request: Request, req: TradingAccountCreate, db: aiosqlite.Connection = Depends(get_db)):
     """
-    Tạo một tài khoản giao dịch mới (Admin only).
+    Tạo một tài khoản giao dịch mới.
     """
-    if not getattr(request.state, "is_admin", True):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ Admin mới có quyền truy cập")
+    user_id = getattr(request.state, "user_id", None)
+    is_admin = getattr(request.state, "is_admin", True)
+    
+    # Nếu không phải admin và cũng không có user_id hợp lệ
+    if not is_admin and not user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ Admin hoặc thành viên đã được duyệt mới có quyền truy cập")
+        
+    # Nếu admin hệ thống gọi mà không chỉ định user_id, mặc định gán cho user_id = 1 (Admin)
+    if not user_id:
+        user_id = 1
         
     import uuid
     token = uuid.uuid4().hex
     
     try:
-        # Check if accounts table is empty, if so make this account active
-        async with db.execute("SELECT COUNT(*) FROM accounts") as cursor:
+        # Kiểm tra xem tài khoản này có phải tài khoản đầu tiên của User này không
+        async with db.execute("SELECT COUNT(*) FROM accounts WHERE user_id = ?", (user_id,)) as cursor:
             count_row = await cursor.fetchone()
             is_active = 1 if count_row[0] == 0 else 0
             
         cursor = await db.execute(
             """
-            INSERT INTO accounts (name, platform, account_number, token, is_active)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO accounts (user_id, name, platform, account_number, token, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (req.name, req.platform, req.account_number, token, is_active)
+            (user_id, req.name, req.platform, req.account_number, token, is_active)
         )
         account_id = cursor.lastrowid
         await db.commit()
@@ -470,7 +486,8 @@ async def create_trading_account(request: Request, req: TradingAccountCreate, db
             ('partial_close_ratio', '0.5'),
             ('partial_close_ratios', '33/33/33'),
             ('partial_close_pips_stages', '50/100/'),
-            ('trailing_manual_enabled', 'false')
+            ('trailing_manual_enabled', 'false'),
+            ('default_sl_pips', '0')
         ]
         for key, value in configs:
             await db.execute(
@@ -481,6 +498,24 @@ async def create_trading_account(request: Request, req: TradingAccountCreate, db
         # Seed default account_info and heartbeat rows
         await db.execute("INSERT OR IGNORE INTO account_info (account_id, account_number, account_name) VALUES (?, ?, ?)", (account_id, req.account_number or 0, req.name))
         await db.execute("INSERT OR IGNORE INTO ea_heartbeat (account_id) VALUES (?)", (account_id,))
+        
+        # Seed default Telegram signal sources from env
+        import os
+        group_id = os.getenv("SIGNAL_GROUP_ID")
+        backup_id = os.getenv("SIGNAL_GROUP_BACKUP_ID")
+        default_mode = os.getenv("DEFAULT_MODE", "queue")
+        
+        if group_id:
+            await db.execute("""
+                INSERT OR IGNORE INTO signal_sources (account_id, source_type, source_key, name, mode)
+                VALUES (?, 'telegram_group', ?, 'Kênh tín hiệu chính', ?)
+            """, (account_id, str(group_id), default_mode))
+        if backup_id:
+            await db.execute("""
+                INSERT OR IGNORE INTO signal_sources (account_id, source_type, source_key, name, mode)
+                VALUES (?, 'telegram_group', ?, 'Kênh tín hiệu phụ', ?)
+            """, (account_id, str(backup_id), default_mode))
+            
         await db.commit()
         
         async with db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)) as c:
@@ -492,21 +527,31 @@ async def create_trading_account(request: Request, req: TradingAccountCreate, db
 @router.put("/api/accounts/{account_id}/active", response_model=TradingAccountResponse)
 async def activate_trading_account(request: Request, account_id: int, db: aiosqlite.Connection = Depends(get_db)):
     """
-    Đặt tài khoản này làm tài khoản hoạt động mặc định (Admin only).
+    Đặt tài khoản này làm tài khoản hoạt động mặc định.
     """
-    if not getattr(request.state, "is_admin", True):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ Admin mới có quyền truy cập")
+    user_id = getattr(request.state, "user_id", None)
+    is_admin = getattr(request.state, "is_admin", True)
+    
+    # Kiểm tra tài khoản tồn tại và thuộc sở hữu của người dùng (trừ hệ thống admin thực sự)
+    if is_admin and not user_id:
+        query = "SELECT * FROM accounts WHERE id = ?"
+        params = (account_id,)
+    else:
+        query = "SELECT * FROM accounts WHERE id = ? AND user_id = ?"
+        params = (account_id, user_id)
         
-    # Check if account exists
-    async with db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)) as cursor:
+    async with db.execute(query, params) as cursor:
         row = await cursor.fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy tài khoản ID {account_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy tài khoản hoặc bạn không có quyền sở hữu tài khoản ID {account_id}")
             
     try:
-        # Deactivate all and activate this one
-        await db.execute("UPDATE accounts SET is_active = 0")
-        await db.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
+        if is_admin and not user_id:
+            await db.execute("UPDATE accounts SET is_active = 0")
+            await db.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
+        else:
+            await db.execute("UPDATE accounts SET is_active = 0 WHERE user_id = ?", (user_id,))
+            await db.execute("UPDATE accounts SET is_active = 1 WHERE id = ? AND user_id = ?", (account_id, user_id))
         await db.commit()
         
         async with db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)) as c:
@@ -518,30 +563,91 @@ async def activate_trading_account(request: Request, account_id: int, db: aiosql
 @router.delete("/api/accounts/{account_id}")
 async def delete_trading_account(request: Request, account_id: int, db: aiosqlite.Connection = Depends(get_db)):
     """
-    Xóa tài khoản giao dịch (Admin only).
+    Xóa tài khoản giao dịch.
     """
-    if not getattr(request.state, "is_admin", True):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ Admin mới có quyền truy cập")
+    user_id = getattr(request.state, "user_id", None)
+    is_admin = getattr(request.state, "is_admin", True)
+    
+    # Kiểm tra tài khoản tồn tại và thuộc sở hữu của người dùng (trừ hệ thống admin thực sự)
+    if is_admin and not user_id:
+        query = "SELECT * FROM accounts WHERE id = ?"
+        params = (account_id,)
+    else:
+        query = "SELECT * FROM accounts WHERE id = ? AND user_id = ?"
+        params = (account_id, user_id)
         
-    # Check if account exists
-    async with db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)) as cursor:
+    async with db.execute(query, params) as cursor:
         row = await cursor.fetchone()
         if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy tài khoản ID {account_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy tài khoản hoặc bạn không có quyền sở hữu tài khoản ID {account_id}")
             
     try:
+        was_active = row["is_active"]
+        
         # Delete account (cascades automatically to trades, config, account_info, ea_heartbeat, lot_overrides, action_history)
         await db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
         await db.commit()
         
-        # If the deleted account was active, select another account as active
-        if row["is_active"]:
-            async with db.execute("SELECT id FROM accounts LIMIT 1") as c:
-                next_row = await c.fetchone()
-                if next_row:
-                    await db.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (next_row[0],))
-                    await db.commit()
-                    
+        # Nếu tài khoản bị xóa đang là active, tự động chọn tài khoản khác làm active
+        if was_active:
+            if is_admin and not user_id:
+                async with db.execute("SELECT id FROM accounts LIMIT 1") as c:
+                    next_row = await c.fetchone()
+                    if next_row:
+                        await db.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (next_row[0],))
+                        await db.commit()
+            else:
+                async with db.execute("SELECT id FROM accounts WHERE user_id = ? LIMIT 1", (user_id,)) as c:
+                    next_row = await c.fetchone()
+                    if next_row:
+                        await db.execute("UPDATE accounts SET is_active = 1 WHERE id = ? AND user_id = ?", (next_row[0], user_id))
+                        await db.commit()
+                        
         return {"status": "success", "message": f"Tài khoản ID {account_id} đã được xóa thành công"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# ── User Management Endpoints ──
+
+@router.get("/api/users/{telegram_id}")
+async def get_user_status(telegram_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    async with db.execute("SELECT * FROM users WHERE telegram_id = ?", (str(telegram_id),)) as cursor:
+        row = await cursor.fetchone()
+        if not row:
+            return {"exists": False, "is_approved": False}
+        return {"exists": True, "is_approved": bool(row["is_approved"]), "id": row["id"], "username": row["username"]}
+
+@router.post("/api/users", status_code=status.HTTP_201_CREATED)
+async def register_user(req: dict, db: aiosqlite.Connection = Depends(get_db)):
+    telegram_id = req.get("telegram_id")
+    username = req.get("username")
+    if not telegram_id:
+        raise HTTPException(status_code=400, detail="Missing telegram_id")
+    try:
+        await db.execute(
+            "INSERT OR IGNORE INTO users (telegram_id, username, is_approved) VALUES (?, ?, 0)",
+            (str(telegram_id), username)
+        )
+        await db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/api/users/{telegram_id}/approve")
+async def approve_user(telegram_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    try:
+        await db.execute("UPDATE users SET is_approved = 1 WHERE telegram_id = ?", (str(telegram_id),))
+        await db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/api/users/{telegram_id}/reject")
+async def reject_user(telegram_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    try:
+        await db.execute("DELETE FROM users WHERE telegram_id = ?", (str(telegram_id),))
+        await db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

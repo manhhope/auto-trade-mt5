@@ -1,7 +1,6 @@
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-from bot.config import config
 from bot.services.api_client import api_client
 from bot.utils.formatter import format_balance, format_positions_list, format_config, format_report, format_datetime
 from bot.handlers.trailing_cmd import format_trailing_config
@@ -28,7 +27,10 @@ def get_inline_menu() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="💳 Tài khoản", callback_data="menu_accounts")
         ],
         [
-            InlineKeyboardButton(text="🟡 Giá vàng", callback_data="menu_gold"),
+            InlineKeyboardButton(text="📡 Nguồn tín hiệu", callback_data="menu_sources"),
+            InlineKeyboardButton(text="🟡 Giá vàng", callback_data="menu_gold")
+        ],
+        [
             InlineKeyboardButton(text="❌ Đóng toàn bộ", callback_data="menu_closeall")
         ]
     ]
@@ -39,7 +41,7 @@ def get_back_markup() -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(text="⬅️ Quay lại Menu", callback_data="menu_main")]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def format_queue_list(signals: list) -> str:
+def format_queue_list(signals: list, expire_min: int = 15) -> str:
     """Định dạng danh sách tín hiệu hàng đợi"""
     if not signals:
         return "📋 Hàng đợi tín hiệu trống. Không có tín hiệu nào chờ duyệt."
@@ -50,7 +52,7 @@ def format_queue_list(signals: list) -> str:
     ]
     
     now = datetime.utcnow()
-    expire_min = int(config.queue_expire_minutes)
+    
     
     for idx, sig in enumerate(signals, 1):
         sl_str = f"{sig['parsed_sl']:.2f}" if sig.get("parsed_sl") else "Không có"
@@ -75,15 +77,11 @@ def format_queue_list(signals: list) -> str:
 # 1. Quay lại Menu chính
 @router.callback_query(F.data == "menu_main")
 async def callback_menu_main(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer()
     
     acc_str = ""
     try:
-        acc = await api_client.get_account()
+        acc = await api_client.get_account(tg_user_id=callback.from_user.id)
         acc_str = f"\n🎮 *Đang thao tác trên:* **{acc['account_name']}** (`{acc['account_number']}`)"
     except Exception:
         pass
@@ -100,14 +98,10 @@ async def callback_menu_main(callback: CallbackQuery):
 # 2. Xem trạng thái hệ thống
 @router.callback_query(F.data == "menu_status")
 async def callback_menu_status(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang lấy trạng thái...")
     try:
-        account = await api_client.get_account()
-        health = await api_client.get_health()
+        account = await api_client.get_account(tg_user_id=callback.from_user.id)
+        health = await api_client.get_health(tg_user_id=callback.from_user.id)
         msg = format_balance(account, health)
         
         # Thêm nút Quay lại Menu
@@ -118,14 +112,10 @@ async def callback_menu_status(callback: CallbackQuery):
 # Xem giá vàng và biến động
 @router.callback_query(F.data == "menu_gold")
 async def callback_menu_gold(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang lấy giá vàng...")
     try:
-        account = await api_client.get_account()
-        health = await api_client.get_health()
+        account = await api_client.get_account(tg_user_id=callback.from_user.id)
+        health = await api_client.get_health(tg_user_id=callback.from_user.id)
         
         from bot.utils.formatter import format_gold_price
         msg = format_gold_price(account, health)
@@ -138,13 +128,9 @@ async def callback_menu_gold(callback: CallbackQuery):
 # 3. Xem danh sách lệnh mở
 @router.callback_query(F.data == "menu_orders")
 async def callback_menu_orders(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang tải danh sách vị thế...")
     try:
-        positions = await api_client.get_positions()
+        positions = await api_client.get_positions(tg_user_id=callback.from_user.id)
         msg = format_positions_list(positions)
         await callback.message.edit_text(msg, reply_markup=get_back_markup(), parse_mode="Markdown")
     except Exception as e:
@@ -153,13 +139,9 @@ async def callback_menu_orders(callback: CallbackQuery):
 # 4. Xem cấu hình chung
 @router.callback_query(F.data == "menu_config")
 async def callback_menu_config(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang tải cấu hình...")
     try:
-        configs = await api_client.get_config()
+        configs = await api_client.get_config(tg_user_id=callback.from_user.id)
         msg = format_config(configs)
         await callback.message.edit_text(msg, reply_markup=get_back_markup(), parse_mode="HTML")
     except Exception as e:
@@ -168,13 +150,9 @@ async def callback_menu_config(callback: CallbackQuery):
 # 5. Xem cấu hình trailing stop
 @router.callback_query(F.data == "menu_trailing")
 async def callback_menu_trailing(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang tải cấu hình trailing...")
     try:
-        cfg = await api_client.get_trailing_config()
+        cfg = await api_client.get_trailing_config(tg_user_id=callback.from_user.id)
         msg = format_trailing_config(cfg)
         await callback.message.edit_text(msg, reply_markup=get_back_markup(), parse_mode="Markdown")
     except Exception as e:
@@ -183,14 +161,12 @@ async def callback_menu_trailing(callback: CallbackQuery):
 # 6. Xem hàng đợi tín hiệu
 @router.callback_query(F.data == "menu_queue")
 async def callback_menu_queue(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang tải hàng đợi...")
     try:
-        signals = await api_client.get_signals(status="QUEUED")
-        msg = format_queue_list(signals)
+        signals = await api_client.get_signals(status="QUEUED", tg_user_id=callback.from_user.id)
+        configs = await api_client.get_config(tg_user_id=callback.from_user.id)
+        expire_min = int(configs.get("queue_expire_minutes", 15))
+        msg = format_queue_list(signals, expire_min=expire_min)
         await callback.message.edit_text(msg, reply_markup=get_back_markup(), parse_mode="Markdown")
     except Exception as e:
         await callback.message.edit_text(f"❌ Không thể lấy danh sách hàng đợi: {str(e)}", reply_markup=get_back_markup())
@@ -198,10 +174,6 @@ async def callback_menu_queue(callback: CallbackQuery):
 # 7. Menu chọn báo cáo
 @router.callback_query(F.data == "menu_report")
 async def callback_menu_report(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer()
     buttons = [
         [
@@ -225,13 +197,9 @@ async def callback_menu_report(callback: CallbackQuery):
 # 8. Màn hình xác nhận đóng toàn bộ lệnh
 @router.callback_query(F.data == "menu_closeall")
 async def callback_menu_closeall(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer()
     try:
-        positions = await api_client.get_positions()
+        positions = await api_client.get_positions(tg_user_id=callback.from_user.id)
         if not positions:
             await callback.message.edit_text(
                 "📋 Không có vị thế nào đang mở để đóng.",
@@ -260,17 +228,13 @@ async def callback_menu_closeall(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("report_"))
 async def callback_report_generate(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     period = callback.data.split("_")[1] # day, week, month
     await callback.answer(f"Đang tạo báo cáo {period}...")
     
     try:
-        summary = await api_client.get_report_summary(period)
+        summary = await api_client.get_report_summary(period, tg_user_id=callback.from_user.id)
         weeks_to_compare = 8 if period == "month" else 4
-        trend = await api_client.get_report_trend(weeks_to_compare)
+        trend = await api_client.get_report_trend(weeks_to_compare, tg_user_id=callback.from_user.id)
         
         msg = format_report(summary, trend)
         
@@ -281,20 +245,16 @@ async def callback_report_generate(callback: CallbackQuery):
 
 @router.callback_query(F.data == "confirm_close_all")
 async def callback_confirm_close_all(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang gửi yêu cầu đóng toàn bộ lệnh...")
     try:
-        positions = await api_client.get_positions()
+        positions = await api_client.get_positions(tg_user_id=callback.from_user.id)
         if not positions:
             await callback.message.edit_text("📋 Không có vị thế nào đang mở để đóng.", reply_markup=get_back_markup())
             return
             
         closed_count = 0
         for pos in positions:
-            await api_client.request_close_position_by_ticket(pos["ticket"])
+            await api_client.request_close_position_by_ticket(pos["ticket"], tg_user_id=callback.from_user.id)
             closed_count += 1
             
         await callback.message.edit_text(
@@ -308,13 +268,9 @@ async def callback_confirm_close_all(callback: CallbackQuery):
 
 @router.callback_query(F.data == "menu_history")
 async def callback_menu_history(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đang tải lịch sử...")
     try:
-        logs = await api_client.get_action_logs()
+        logs = await api_client.get_action_logs(tg_user_id=callback.from_user.id)
         if not logs:
             await callback.message.edit_text(
                 "📋 Lịch sử hoạt động trống.",
@@ -403,10 +359,6 @@ async def callback_menu_history(callback: CallbackQuery):
 
 @router.callback_query(F.data == "cancel_close_all")
 async def callback_cancel_close_all(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
-        
     await callback.answer("Đã hủy bỏ yêu cầu.")
     await callback.message.edit_text(
         "❌ Đã hủy yêu cầu đóng toàn bộ lệnh.",
@@ -421,7 +373,6 @@ async def callback_cancel_close_all(callback: CallbackQuery):
     "💰 Số dư", "❌ Đóng toàn bộ"
 }))
 async def handle_old_reply_keyboard(message: Message):
-    if not is_owner(message): return
     
     # Gửi menu inline mới và gỡ bỏ bàn phím cũ
     await message.reply(

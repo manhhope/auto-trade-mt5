@@ -4,7 +4,6 @@ from telethon import TelegramClient, events
 from bot.config import config
 from bot.services.api_client import api_client
 from bot.parsers.signal_parser import parse_signal
-from bot.utils.formatter import format_queue_signal, format_auto_trade
 
 logger = logging.getLogger("listener")
 
@@ -50,26 +49,14 @@ async def handle_new_message(event, bot):
         })
         
     try:
-        # 2. Gửi tín hiệu lên API
+        # 2. Gửi tín hiệu lên API (API tự động định tuyến và gửi thông báo Telegram cho chủ sở hữu tài khoản tương ứng)
         response = await api_client.create_signal(signal_req)
         
-        # 3. Gửi thông báo đến cho Owner
         if not parsed:
-            # Nếu phân tích cú pháp thất bại, ta bỏ qua hoặc có thể ghi log
             logger.warning(f"Phân tích tín hiệu thất bại cho tin nhắn ID {message_id}")
             return
             
-        # Kiểm tra xem có lệnh được khớp tự động (Auto Mode) trả về từ API không
-        auto_trade = response.get("auto_executed_trade")
-        if auto_trade:
-            # Thông báo lệnh khớp tự động
-            msg = format_auto_trade(auto_trade)
-            await bot.send_message(chat_id=config.owner_chat_id, text=msg, parse_mode="Markdown")
-        else:
-            # Thông báo tín hiệu đưa vào hàng đợi xác nhận (Queue Mode)
-            msg = format_queue_signal(response, expire_minutes=int(config.queue_expire_minutes))
-            await bot.send_message(chat_id=config.owner_chat_id, text=msg, parse_mode="Markdown")
-            
+        logger.info(f"Signal processed successfully via API: {response.get('queue_id')}")
     except Exception as e:
         logger.error(f"Lỗi khi xử lý tin nhắn tín hiệu: {e}")
 

@@ -1,23 +1,17 @@
 import uuid
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from bot.config import config
 from bot.services.api_client import api_client
 from bot.parsers.command_parser import parse_trade_command
 from bot.utils.formatter import format_auto_trade
 
 router = Router()
 
-def is_owner(message: Message) -> bool:
-    """Kiểm tra xem người gửi tin nhắn có phải chủ tài khoản không"""
-    return message.from_user is not None and message.from_user.id == config.owner_chat_id
+
 
 async def execute_manual_trade(message: Message, trade_type: str):
     """Xử lý tạo lệnh giao dịch thủ công"""
-    if not is_owner(message):
-        return
-        
     try:
         # 1. Parse tin nhắn lệnh
         parsed = parse_trade_command(message.text)
@@ -31,7 +25,7 @@ async def execute_manual_trade(message: Message, trade_type: str):
         # 2. Xác định số lot (nếu không truyền -> lấy theo config hệ thống)
         lot_size = parsed["lot_size"]
         if not lot_size:
-            sys_configs = await api_client.get_config()
+            sys_configs = await api_client.get_config(tg_user_id=message.from_user.id)
             # Kiểm tra override theo symbol
             overrides = sys_configs.get("lot_overrides", {})
             if symbol in overrides:
@@ -53,7 +47,7 @@ async def execute_manual_trade(message: Message, trade_type: str):
         }
         
         # 4. Gọi API tạo trade
-        trade = await api_client.create_trade(trade_req)
+        trade = await api_client.create_trade(trade_req, tg_user_id=message.from_user.id)
         
         # 5. Thông báo kết quả lệnh đã được đưa vào hàng chờ gửi sang EA
         msg = format_auto_trade(trade)
@@ -93,7 +87,6 @@ async def cmd_buylimit(message: Message):
 @router.message(Command("selllimit"))
 async def cmd_selllimit(message: Message):
     await execute_manual_trade(message, "SELL_LIMIT")
-
 @router.message(Command("buystop"))
 async def cmd_buystop(message: Message):
     await execute_manual_trade(message, "BUY_STOP")
@@ -101,3 +94,67 @@ async def cmd_buystop(message: Message):
 @router.message(Command("sellstop"))
 async def cmd_sellstop(message: Message):
     await execute_manual_trade(message, "SELL_STOP")
+
+async def execute_quick_trade(message: Message, trade_type: str):
+    """Xử lý tạo lệnh giao dịch nhanh cho Vàng (cú pháp /buynow hoặc /sellnow)"""
+    try:
+        parts = message.text.split()
+        lot_size = None
+        
+        # 1. Kiểm tra lot_size nếu có truyền vào
+        if len(parts) >= 2:
+            try:
+                lot_size = float(parts[1])
+                if lot_size <= 0:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("Cú pháp số lot không hợp lệ. Số lot phải là số thực lớn hơn 0 (VD: 0.03).")
+                
+        symbol = "GOLD" # API sẽ tự động map sang XAUUSDm
+        
+        # 2. Xác định số lot nếu không truyền -> lấy theo cấu hình
+        if not lot_size:
+            sys_configs = await api_client.get_config(tg_user_id=message.from_user.id)
+            # Kiểm tra override theo symbol (kiểm tra cả XAUUSDm, GOLD)
+            overrides = sys_configs.get("lot_overrides", {})
+            if "XAUUSDm" in overrides:
+                lot_size = float(overrides["XAUUSDm"])
+            elif "GOLD" in overrides:
+                lot_size = float(overrides["GOLD"])
+            else:
+                lot_size = float(sys_configs.get("default_lot", 0.01))
+                
+        # 3. Chuẩn bị request (Lệnh nhanh mặc định không truyền SL/TP, EA sẽ tự động thêm nếu cấu hình default_sl_pips > 0)
+        trade_uuid = str(uuid.uuid4())
+        trade_req = {
+            "uuid": trade_uuid,
+            "symbol": symbol,
+            "trade_type": trade_type,
+            "lot_size": lot_size,
+            "price": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "source": "MANUAL"
+        }
+        
+        # 4. Gọi API tạo trade
+        trade = await api_client.create_trade(trade_req, tg_user_id=message.from_user.id)
+        
+        # 5. Thông báo kết quả
+        msg = format_auto_trade(trade)
+        await message.reply(msg, parse_mode="Markdown")
+        
+    except ValueError as e:
+        cmd_name = "buynow" if trade_type == "BUY" else "sellnow"
+        await message.reply(f"❌ Lỗi cú pháp: {str(e)}\n\nVD: `/{cmd_name}` hoặc `/{cmd_name} 0.03`", parse_mode="Markdown")
+    except Exception as e:
+        await message.reply(f"❌ Gặp lỗi khi tạo lệnh: {str(e)}")
+
+@router.message(Command("buynow"))
+async def cmd_buynow(message: Message):
+    await execute_quick_trade(message, "BUY")
+
+@router.message(Command("sellnow"))
+async def cmd_sellnow(message: Message):
+    await execute_quick_trade(message, "SELL")
+

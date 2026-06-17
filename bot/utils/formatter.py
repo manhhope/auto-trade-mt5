@@ -335,7 +335,7 @@ def format_gold_price(account: Dict[str, Any], health: Dict[str, Any]) -> str:
         elif val < 0:
             return f"🔴 -{abs(val):.2f} $"
         else:
-            return f"⚪ 0.00 $"
+            return "⚪ 0.00 $"
             
     # Check if EA is online
     ea_status = "Online ✅" if health["ea_online"] else "Offline 🔴 (Giá có thể bị trễ)"

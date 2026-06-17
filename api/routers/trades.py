@@ -82,7 +82,8 @@ async def update_trade_status(
             
             # Gửi thông báo
             msg = format_trade_filled(trade)
-            await send_telegram_safe(bot, config.owner_chat_id, msg)
+            target_chat_id = int(trade.get("telegram_id")) if trade.get("telegram_id") else config.owner_chat_id
+            await send_telegram_safe(bot, target_chat_id, msg)
         except Exception as telegram_err:
             import logging
             logging.getLogger("api").error(f"Lỗi khi gửi thông báo Telegram trade filled: {telegram_err}")

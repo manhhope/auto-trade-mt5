@@ -3,7 +3,6 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from bot.config import config
 from bot.services.api_client import api_client
 
 router = Router()
@@ -18,13 +17,16 @@ def get_back_markup() -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(text="⬅️ Quay lại Menu", callback_data="menu_main")]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-async def display_accounts_list(message_or_callback, state: FSMContext = None):
+async def display_accounts_list(message_or_callback, state: FSMContext = None, tg_user_id: int = None):
     # Xoá trạng thái FSM hiện tại nếu có để tránh kẹt trạng thái
     if state:
         await state.clear()
         
+    if tg_user_id is None:
+        tg_user_id = message_or_callback.from_user.id
+        
     try:
-        accounts = await api_client.get_accounts()
+        accounts = await api_client.get_accounts(tg_user_id=tg_user_id)
     except Exception as e:
         text = f"❌ Lỗi khi lấy danh sách tài khoản: {e}"
         if isinstance(message_or_callback, CallbackQuery):
@@ -45,7 +47,7 @@ async def display_accounts_list(message_or_callback, state: FSMContext = None):
         
         # Lấy trạng thái hoạt động (online/offline) của EA tài khoản này
         try:
-            health = await api_client.get_health(account_id=acc["id"])
+            health = await api_client.get_health(account_id=acc["id"], tg_user_id=tg_user_id)
             if health.get("ea_online"):
                 status_str = "🟢 Online"
             else:
@@ -55,7 +57,7 @@ async def display_accounts_list(message_or_callback, state: FSMContext = None):
 
         # Lấy số dư hiện tại của tài khoản
         try:
-            acc_detail = await api_client.get_account(account_id=acc["id"])
+            acc_detail = await api_client.get_account(account_id=acc["id"], tg_user_id=tg_user_id)
             balance_str = f"${acc_detail.get('balance', 0.0):,.2f}"
         except Exception:
             pass
@@ -94,37 +96,28 @@ async def display_accounts_list(message_or_callback, state: FSMContext = None):
 
 @router.message(Command("accounts"))
 async def cmd_accounts(message: Message, state: FSMContext):
-    if message.from_user.id != config.owner_chat_id:
-        return
-    await display_accounts_list(message, state)
+    await display_accounts_list(message, state, tg_user_id=message.from_user.id)
 
 @router.callback_query(F.data == "menu_accounts")
 async def cb_menu_accounts(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != config.owner_chat_id:
-        await callback.answer("❌ Bạn không có quyền.")
-        return
     await callback.answer()
-    await display_accounts_list(callback, state)
+    await display_accounts_list(callback, state, tg_user_id=callback.from_user.id)
 
 @router.callback_query(F.data.startswith("acc_select:"))
 async def cb_acc_select(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != config.owner_chat_id:
-        return
     account_id = int(callback.data.split(":")[1])
     try:
-        acc = await api_client.activate_account(account_id)
+        acc = await api_client.activate_account(account_id, tg_user_id=callback.from_user.id)
         await callback.answer(f"✅ Đã chọn làm mặc định: {acc['name']}")
     except Exception as e:
         await callback.answer(f"❌ Lỗi: {e}", show_alert=True)
-    await display_accounts_list(callback, state)
+    await display_accounts_list(callback, state, tg_user_id=callback.from_user.id)
 
 @router.callback_query(F.data.startswith("acc_token:"))
 async def cb_acc_token(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        return
     account_id = int(callback.data.split(":")[1])
     try:
-        accounts = await api_client.get_accounts()
+        accounts = await api_client.get_accounts(tg_user_id=callback.from_user.id)
         acc = next((a for a in accounts if a["id"] == account_id), None)
         if acc:
             text = (
@@ -143,8 +136,6 @@ async def cb_acc_token(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("acc_confirm_del:"))
 async def cb_acc_confirm_del(callback: CallbackQuery):
-    if callback.from_user.id != config.owner_chat_id:
-        return
     account_id = int(callback.data.split(":")[1])
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -162,20 +153,16 @@ async def cb_acc_confirm_del(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("acc_delete:"))
 async def cb_acc_delete(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != config.owner_chat_id:
-        return
     account_id = int(callback.data.split(":")[1])
     try:
-        res = await api_client.delete_account(account_id)
+        res = await api_client.delete_account(account_id, tg_user_id=callback.from_user.id)
         await callback.answer(res.get("message", "Đã xóa tài khoản."), show_alert=True)
     except Exception as e:
         await callback.answer(f"❌ Lỗi khi xóa: {e}", show_alert=True)
-    await display_accounts_list(callback, state)
+    await display_accounts_list(callback, state, tg_user_id=callback.from_user.id)
 
 @router.callback_query(F.data == "acc_add")
 async def cb_acc_add(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != config.owner_chat_id:
-        return
     await callback.answer()
     await state.set_state(AccountForm.name)
     markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Hủy bỏ", callback_data="menu_accounts")]])
@@ -188,8 +175,7 @@ async def cb_acc_add(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AccountForm.name)
 async def process_name(message: Message, state: FSMContext):
-    if message.from_user.id != config.owner_chat_id:
-        return
+    
     await state.update_data(name=message.text.strip())
     await state.set_state(AccountForm.platform)
     
@@ -209,8 +195,7 @@ async def process_name(message: Message, state: FSMContext):
 
 @router.callback_query(AccountForm.platform, F.data.startswith("platform_select:"))
 async def cb_platform_select(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != config.owner_chat_id:
-        return
+    
     platform = callback.data.split(":")[1]
     await state.update_data(platform=platform)
     await state.set_state(AccountForm.account_number)
@@ -226,8 +211,7 @@ async def cb_platform_select(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AccountForm.account_number)
 async def process_account_number(message: Message, state: FSMContext):
-    if message.from_user.id != config.owner_chat_id:
-        return
+    
     account_number = message.text.strip()
     user_data = await state.get_data()
     await state.clear()
@@ -236,7 +220,8 @@ async def process_account_number(message: Message, state: FSMContext):
         acc = await api_client.create_account(
             name=user_data["name"],
             platform=user_data["platform"],
-            account_number=account_number if account_number != "0" else None
+            account_number=account_number if account_number != "0" else None,
+            tg_user_id=message.from_user.id
         )
         
         text = (

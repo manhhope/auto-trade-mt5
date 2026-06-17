@@ -1,7 +1,5 @@
 import pytest
-import uuid
 from httpx import AsyncClient
-from datetime import datetime
 
 @pytest.mark.asyncio
 async def test_create_action_log_success(client: AsyncClient):

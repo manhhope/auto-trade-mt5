@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 def parse_trade_command(text: str) -> Dict[str, Any]:
     """
