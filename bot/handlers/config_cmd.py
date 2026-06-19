@@ -44,7 +44,14 @@ async def cmd_config(message: Message):
     
     try:
         # Nếu key là một trong các cấu hình chính
-        if key.lower() in ["default_lot", "queue_expire_minutes", "sl_buffer_pips", "mode"]:
+        principal_keys = {
+            "mode", "default_lot", "queue_expire_minutes", "sl_buffer_pips", "signal_group_id",
+            "trailing_enabled", "trailing_be_pips", "trailing_be_offset", "trailing_step_pips",
+            "trailing_step_distance", "partial_close_enabled", "partial_close_pips", "partial_close_ratio",
+            "partial_close_ratios", "partial_close_pips_stages", "trailing_manual_enabled",
+            "signal_execution_mode", "default_sl_pips"
+        }
+        if key.lower() in principal_keys:
             await api_client.update_config(key.lower(), value, tg_user_id=message.from_user.id)
             await message.reply(f"✅ Đã cập nhật cấu hình <b>{key.lower()}</b> thành <code>{value}</code>.")
         else:

@@ -21,12 +21,14 @@ def format_trailing_config(c: dict) -> str:
         f"  - Bước dời SL (`/sl_step`): `{c.get('step_pips')}` pips\n"
         f"  - Khoảng dời SL mỗi bước (`/sl_trail`): `{c.get('step_distance')}` pips\n"
         f"  - Trailing cho lệnh thủ công (`/trailing_manual`): {status_manual}\n\n"
+        f"• **Stop Loss mặc định (`/default_sl`):** `{c.get('default_sl_pips', 0)}` pips (Tự động thêm SL cho lệnh chưa có SL)\n\n"
         f"• **Trạng thái Partial Close:** {status_partial}\n"
         f"  - Tỷ lệ chốt từng phần (`/partial_stages`): `{c.get('partial_ratios')}`\n"
         f"  - Pips kích hoạt từng phần (`/partial_pips_stages`): `{c.get('partial_pips_stages')}`\n\n"
         "💡 *Sử dụng các lệnh bên dưới để điều chỉnh:*\n"
         "• `/trailing on/off` — Bật/Tắt trailing stop\n"
         "• `/trailing_manual on/off` — Bật/Tắt trailing cho lệnh thủ công\n"
+        "• `/default_sl 100` — Đặt Stop Loss mặc định (0 để tắt)\n"
         "• `/sl_be 15` — Ngưỡng kích hoạt breakeven\n"
         "• `/sl_be_offset 2` — Dời SL cách entry 2 pips\n"
         "• `/sl_step 10` — Mỗi 10 pips tăng thêm\n"
@@ -200,4 +202,28 @@ async def cmd_partial_pips_stages(message: Message):
         await message.reply(f"✅ Đã cập nhật số pips kích hoạt các bước chốt lời là `{parts[1]}`.", parse_mode="Markdown")
     except Exception as e:
         await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
+
+@router.message(Command("default_sl"))
+async def cmd_default_sl(message: Message):
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("❌ Cú pháp: `/default_sl [số pips]` (VD: `/default_sl 100`). Dùng `0` để tắt.")
+        return
+    try:
+        pips = int(parts[1])
+        if pips < 0:
+            raise ValueError()
+    except ValueError:
+        await message.reply("❌ Số pips phải là số nguyên lớn hơn hoặc bằng 0.")
+        return
+        
+    try:
+        await api_client.update_config("default_sl_pips", str(pips), tg_user_id=message.from_user.id)
+        if pips == 0:
+            await message.reply("✅ Đã tắt tính năng tự động thêm Stop Loss mặc định.")
+        else:
+            await message.reply(f"✅ Đã cấu hình Stop Loss mặc định là `{pips}` pips cho tài khoản của bạn.", parse_mode="Markdown")
+    except Exception as e:
+        await message.reply(f"❌ Cập nhật thất bại: {str(e)}")
+
 
